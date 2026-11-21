@@ -1,0 +1,1360 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#0f5c5c">
+<title>Handyman Manager · Legal &amp; QA</title>
+<style>
+:root{--ink:#14232f;--bg:#e9edef;--card:#fff;--ac:#0f5c5c;--tape:#f2c230;--mut:#5b6b76;--bad:#b3261e;--ok:#1b7a43;--ln:#cfd7dc}
+*{box-sizing:border-box}
+body{margin:0;font:16px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;background:var(--bg);color:var(--ink);padding-bottom:calc(76px + env(safe-area-inset-bottom))}
+header{background:var(--ac);color:white;padding:calc(12px + env(safe-area-inset-top)) 16px 12px;border-bottom:5px solid var(--tape);position:sticky;top:0;z-index:5}
+header b{font-size:18px}
+header small{display:block;opacity:.85}
+main{max-width:760px;margin:auto;padding:14px}
+.c{background:white;border:1px solid var(--ln);border-radius:10px;padding:14px;margin-bottom:12px}
+h2,h3{margin:0 0 10px}
+.m{color:var(--mut);font-size:14px}
+button{font:inherit;min-height:46px;padding:8px 14px;border:0;border-radius:8px;background:var(--ac);color:white;font-weight:650;margin:3px 3px 3px 0;cursor:pointer}
+button.secondary{background:white;color:var(--ac);border:2px solid var(--ac)}
+button.w{width:100%}
+button.danger{background:#9e2525}
+input,select,textarea{font:inherit;width:100%;min-height:45px;padding:9px;border:1px solid #9aa8b0;border-radius:8px;margin:3px 0 10px;background:white;color:var(--ink)}
+textarea{min-height:82px}
+label{font-weight:650;font-size:14px;display:block}
+input[type=checkbox],input[type=radio]{width:auto;min-height:auto;margin-right:8px}
+.row{display:flex;justify-content:space-between;gap:10px;padding:9px 0;border-bottom:1px solid var(--ln);align-items:center}
+.row:last-child{border:0}
+nav{position:fixed;bottom:0;left:0;right:0;display:flex;background:white;border-top:1px solid var(--ln);padding-bottom:env(safe-area-inset-bottom);z-index:6}
+nav button{flex:1;background:none;color:var(--mut);border-radius:0;margin:0;min-height:58px;font-size:12px;padding:4px}
+nav button.on{color:var(--ac);box-shadow:inset 0 3px var(--tape)}
+.tabs{display:flex;gap:8px;margin-bottom:12px}
+.tabs button{flex:1;margin:0}
+.tabs button.off{background:white;color:var(--ac);border:2px solid var(--ac)}
+canvas.signature{width:100%;height:140px;border:2px dashed #9aa8b0;border-radius:8px;touch-action:none;background:#fff}
+.evidence-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;margin-top:7px}
+.evidence-grid img{width:100%;height:110px;object-fit:cover;border:1px solid var(--ln);border-radius:7px}
+.question{padding:11px 0;border-bottom:1px solid var(--ln)}
+.question:last-child{border:0}
+.answers{display:flex;gap:15px;flex-wrap:wrap;margin:7px 0}
+.answers label{font-weight:500}
+.small{font-size:12px;color:var(--mut)}
+.action-group{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+#toast{position:fixed;left:50%;transform:translateX(-50%);bottom:88px;background:#14232f;color:white;padding:10px 15px;border-radius:8px;display:none;z-index:10;max-width:90%;text-align:center}
+dialog{width:min(650px,96%);max-height:92vh;border:0;border-radius:14px;padding:16px;overflow:auto}
+dialog::backdrop{background:#0008}
+</style>
+</head>
+<body>
+<main id="view"></main>
+
+<!-- Load shared platform core -->
+<script src="core.js"></script>
+<script>
+"use strict";
+
+// ============================================================================
+// 1. TASK-SPECIFIC QA CHECKLISTS (15 TRADE CATEGORIES)
+// ============================================================================
+const TASKS = {
+  'Garden gate repair': [
+    'Is the gate frame, post and surrounding structure sound enough for the repair?',
+    'Are hinges, fixings and latch suitable and securely fitted?',
+    'Does the gate open and close freely without dragging?',
+    'Is the latch working and does the gate remain secure when closed?',
+    'Have sharp edges, debris and trip hazards been removed?'
+  ],
+  'Hanging shelves or hooks': [
+    'Has the wall type and likely service location been checked?',
+    'Are the fixings suitable for the wall and expected load?',
+    'Are the brackets, hooks or supports level and securely fixed?',
+    'Has the installation been checked for movement or looseness?',
+    'Has the work area been left clean and safe?'
+  ],
+  'Replacing silicone sealant': [
+    'Has the old sealant been removed and the surfaces cleaned?',
+    'Are the surfaces dry and suitable for the selected sealant?',
+    'Has the correct sealant been selected for the location?',
+    'Is the new bead continuous, neatly tooled and free from gaps?',
+    'Have curing instructions and any use restrictions been explained?'
+  ],
+  'Flat-pack furniture assembly': [
+    'Have all parts and fixings been checked against the instructions?',
+    'Has the unit been assembled in the correct orientation?',
+    'Are all required fixings tightened and components secure?',
+    'Is the furniture stable and safely positioned?',
+    'Have packaging and unused fixings been cleared away?'
+  ],
+  'Painting and decorating': [
+    'Have surfaces been prepared and protected appropriately?',
+    'Have suitable materials and finishes been used?',
+    'Is coverage even and are edges and cut-ins tidy?',
+    'Have drips, splashes and defects been checked and addressed?',
+    'Has the area been left clean with drying/ventilation advice given?'
+  ],
+  'Minor plumbing repair': [
+    'Has the water supply been isolated where necessary?',
+    'Are fittings and replacement parts suitable for the installation?',
+    'Have connections been checked for leaks under operating conditions?',
+    'Are valves and appliances operating as expected?',
+    'Has the customer been told about any limitations or follow-up needed?'
+  ],
+  'Door adjustment or repair': [
+    'Are the door, frame and hinges in sound condition?',
+    'Have hinges and fixings been tightened or adjusted correctly?',
+    'Does the door open and close without binding?',
+    'Are the latch and handles operating correctly?',
+    'Have sharp edges and debris been removed?'
+  ],
+  'Curtain pole or blind installation': [
+    'Has the wall or ceiling substrate been checked?',
+    'Are brackets and fixings suitable for the load and substrate?',
+    'Are brackets aligned, level and securely fixed?',
+    'Does the pole/blind operate correctly and safely?',
+    'Have dust and debris been removed?'
+  ],
+  'Tile or grout repair': [
+    'Have loose or damaged areas been identified and prepared?',
+    'Are replacement materials compatible with the existing finish?',
+    'Are grout lines or sealant joints continuous and neatly finished?',
+    'Has excess material been removed without damaging surfaces?',
+    'Have curing and cleaning instructions been explained?'
+  ],
+  'Fence panel repair': [
+    'Are posts and supporting structures stable?',
+    'Are replacement panels and fixings suitable for the location?',
+    'Are panels secured and aligned correctly?',
+    'Are exposed edges and fixings safe?',
+    'Has the area been cleared of offcuts and debris?'
+  ],
+  'Lock or handle replacement': [
+    'Is the replacement hardware compatible with the door or window?',
+    'Have fixings been installed securely?',
+    'Does the lock, latch or handle operate smoothly?',
+    'Has key operation and locking been tested with the customer?',
+    'Have keys and relevant operating information been handed over?'
+  ],
+  'Gutter or downpipe minor repair': [
+    'Has safe access been established for the work?',
+    'Are joints, brackets and components correctly fitted?',
+    'Are connections secure and aligned?',
+    'Has water flow or leakage been checked where practicable?',
+    'Have access equipment and debris been removed safely?'
+  ],
+  'Picture or mirror hanging': [
+    'Has the wall type and item weight been considered?',
+    'Are fixings and hanging hardware appropriate?',
+    'Is the item level and securely supported?',
+    'Has stability been checked without risking damage?',
+    'Has the work area been left clean and safe?'
+  ],
+  'General maintenance': [
+    'Have the requested tasks and work area been confirmed with the customer?',
+    'Are materials, tools and fixings suitable for the work?',
+    'Has the work been completed to the agreed scope?',
+    'Have completed items been checked for safe operation and stability?',
+    'Have defects, limitations or follow-up actions been recorded?'
+  ],
+  'Other / bespoke task': [
+    'Has the work scope and expected outcome been agreed with the customer?',
+    'Have relevant materials, tools and fixing methods been checked?',
+    'Has the work been completed to the agreed scope?',
+    'Have the completed works been checked for safe operation and finish?',
+    'Have any limitations, defects or follow-up actions been explained?'
+  ]
+};
+
+let workspaceTab = 'qa'; // 'qa' | 'legal'
+
+function switchTab(tab) {
+  workspaceTab = tab;
+  renderWorkspace();
+}
+
+function renderTabs(active) {
+  return `
+    <div class="tabs">
+      <button type="button" class="${active === 'qa' ? '' : 'off'}" onclick="switchTab('qa')">QA Portal</button>
+      <button type="button" class="${active === 'legal' ? '' : 'off'}" onclick="switchTab('legal')">Legal Documents</button>
+    </div>
+  `;
+}
+
+// ============================================================================
+// 2. MAIN WORKSPACE RENDERER (QA PORTAL & LEGAL DOCUMENTS)
+// ============================================================================
+async function renderWorkspace() {
+  const viewEl = $('#view');
+  try {
+    if (workspaceTab === 'legal') {
+      viewEl.innerHTML = await renderLegalView();
+    } else {
+      viewEl.innerHTML = await renderQaView();
+    }
+    window.scrollTo(0, 0);
+  } catch (e) {
+    console.error(e);
+    viewEl.innerHTML = `<div class="c"><b style="color:var(--bad)">Error:</b> ${esc(e.message)}</div>`;
+  }
+}
+
+async function renderQaView() {
+  const [jobs, reports] = await Promise.all([
+    all('jobs').then((list) => list.sort((a, b) => (b.created || 0) - (a.created || 0))),
+    all('qaReports').then((list) => list.sort((a, b) => (b.created || 0) - (a.created || 0)))
+  ]);
+
+  return `
+    ${renderTabs('qa')}
+    <div class="c">
+      <h2>QA Portal</h2>
+      <p class="m">Choose an existing job to create a quality assurance report. Each work type has its own five inspection questions with per-check photo evidence and customer sign-off.</p>
+      ${
+        jobs.length
+          ? jobs
+              .map(
+                (j) => `
+                <div class="row">
+                  <span>
+                    <b>${esc(j.ref)}</b>
+                    <div class="m">${esc(j.customerName)} · ${esc(j.task || j.description)}</div>
+                  </span>
+                  <button type="button" onclick="qaForm('${esc(j.id)}')">Start QA</button>
+                </div>`
+              )
+              .join('')
+          : `<p class="m">Create a job first in Customers &amp; Jobs, then return here to start its QA report.</p>
+             <button class="secondary w" onclick="navigateTo('archive.html', { action: 'new-job' })">+ Go to Create Job</button>`
+      }
+    </div>
+
+    <div class="c">
+      <h3>Completed QA reports (${reports.length})</h3>
+      ${
+        reports.length
+          ? reports
+              .map(
+                (r) => `
+                <div class="row">
+                  <span>
+                    <b>${esc(r.taskType)}</b>
+                    <div class="m">${esc(r.jobRef)} · ${esc(r.customerName)} · ${dateFmt(r.workDate)}</div>
+                  </span>
+                  <div class="action-group">
+                    <button type="button" class="secondary" onclick="downloadQA('${esc(r.id)}')">PDF</button>
+                    <button type="button" class="secondary" onclick="shareQA('${esc(r.id)}')">Share</button>
+                  </div>
+                </div>`
+              )
+              .join('')
+          : '<p class="m">No QA reports created yet.</p>'
+      }
+    </div>
+
+    <div class="c">
+      <p class="small">The QA report is a quality and completion record. It is not an invoice or a substitute for a written contract.</p>
+    </div>
+  `;
+}
+
+async function renderLegalView() {
+  const [templates, docs, jobs] = await Promise.all([
+    all('templates').then((list) => list.sort((a, b) => (b.created || 0) - (a.created || 0))),
+    all('docs').then((list) => list.sort((a, b) => (b.created || 0) - (a.created || 0))),
+    all('jobs').then((list) => list.sort((a, b) => (b.created || 0) - (a.created || 0)))
+  ]);
+
+  return `
+    ${renderTabs('legal')}
+    <div class="c">
+      <h2>Legal documents</h2>
+      <p class="m">Keep your own original legal PDFs here. The app fills copies of your templates and does not rewrite or remove their original clauses.</p>
+      <label>Import a blank PDF template</label>
+      <input id="legalTemplateFile" type="file" accept="application/pdf" onchange="importLegalTemplate(this)">
+      <p class="small">Templates and completed documents stay in this browser on this device. Import only PDFs you are entitled to use.</p>
+    </div>
+
+    <div class="c">
+      <h3>Private template library (${templates.length})</h3>
+      ${
+        templates.length
+          ? templates
+              .map(
+                (t) => `
+                <div class="row">
+                  <span>
+                    <b>${esc(t.name)}</b>
+                    <div class="m">Added ${new Date(t.created).toLocaleDateString('en-GB')}</div>
+                  </span>
+                  <div class="action-group">
+                    <button type="button" onclick="chooseLegalJob('${esc(t.id)}')">Use template</button>
+                    <button type="button" class="secondary" onclick="downloadTemplate('${esc(t.id)}')">PDF</button>
+                    <button type="button" class="danger" onclick="confirmDeleteTemplate('${esc(t.id)}')">Delete</button>
+                  </div>
+                </div>`
+              )
+              .join('')
+          : '<p class="m">No legal templates imported yet.</p>'
+      }
+    </div>
+
+    <div class="c">
+      <h3>Completed legal documents (${docs.length})</h3>
+      ${
+        docs.length
+          ? docs
+              .map(
+                (d) => `
+                <div class="row">
+                  <span>
+                    <b>${esc(d.name)}</b>
+                    <div class="m">${esc(d.jobRef || 'No job')} · ${new Date(d.created).toLocaleDateString('en-GB')}</div>
+                  </span>
+                  <div class="action-group">
+                    <button type="button" class="secondary" onclick="downloadLegalDoc('${esc(d.id)}')">PDF</button>
+                    <button type="button" class="secondary" onclick="shareLegalDoc('${esc(d.id)}')">Share</button>
+                  </div>
+                </div>`
+              )
+              .join('')
+          : '<p class="m">Completed documents will appear here and remain linked to their job.</p>'
+      }
+    </div>
+
+    <div class="c">
+      <h3>Start from a job</h3>
+      ${
+        jobs.length
+          ? jobs
+              .map(
+                (j) => `
+                <div class="row">
+                  <span>
+                    <b>${esc(j.ref)}</b>
+                    <div class="m">${esc(j.customerName)} · ${esc(j.description)}</div>
+                  </span>
+                  <button type="button" onclick="chooseLegalTemplate('${esc(j.id)}')">Add document</button>
+                </div>`
+              )
+              .join('')
+          : '<p class="m">Create a job first in Customers &amp; Jobs to attach its legal paperwork.</p>'
+      }
+    </div>
+  `;
+}
+
+// ============================================================================
+// 3. QUALITY ASSURANCE FORM, PHOTO CAPTURE & SIGNATURES
+// ============================================================================
+let photoFiles = [];
+let questionPhotoFiles = {};
+let signatureState = {};
+
+async function qaForm(jobId) {
+  photoFiles = [];
+  questionPhotoFiles = {};
+  signatureState = {};
+
+  const j = await get('jobs', jobId);
+  if (!j) return toast('Job not found');
+
+  const type = j.task && TASKS[j.task] ? j.task : 'General maintenance';
+
+  modal(`
+    <h2>Quality assurance report</h2>
+    <p class="m">${esc(j.ref)} · ${esc(j.customerName)}</p>
+    <form id="qaForm">
+      <label>Task type</label>
+      <select id="qaType" name="taskType" onchange="renderQuestions()" required>
+        ${Object.keys(TASKS)
+          .map((t) => `<option ${t === type ? 'selected' : ''}>${esc(t)}</option>`)
+          .join('')}
+      </select>
+
+      <label>Customer name</label>
+      <input name="customerName" value="${esc(j.customerName)}" required>
+
+      <label>Customer address</label>
+      <textarea name="customerAddress">${esc(j.customerAddress || '')}</textarea>
+
+      <label>Handyman name</label>
+      <input name="handymanName" value="${esc(brand.name)}" required>
+
+      <label>Job address</label>
+      <textarea name="jobAddress">${esc(j.customerAddress || '')}</textarea>
+
+      <label>Work carried out / detailed description</label>
+      <textarea name="workDescription" required>${esc(j.description || '')}</textarea>
+
+      <label>Date work was carried out (can be backdated)</label>
+      <input name="workDate" type="date" value="${today()}" required>
+
+      <div id="qaQuestions"></div>
+
+      <div class="c">
+        <h3>Additional photographic evidence</h3>
+        <p class="small">Photos added to individual checklist questions will appear beside those questions in the PDF. You can also add general job photographs here.</p>
+        <input type="file" id="qaPhotos" accept="image/*" capture="environment" multiple onchange="previewPhotos(this)">
+        <div id="photoPreview" class="evidence-grid"></div>
+      </div>
+
+      <label>Additional customer notes</label>
+      <textarea name="customerNotes" placeholder="Optional comments from the customer"></textarea>
+
+      <label>Amount charged (£)</label>
+      <input name="amountCharged" type="number" step=".01" min="0" value="${Number(j.amount) || 0}">
+
+      <label>Payment status</label>
+      <select name="paymentStatus">
+        ${['Paid', 'Not paid', 'To be paid', 'Part-paid', 'Not applicable']
+          .map((s) => `<option ${(j.paymentStatus || 'Not paid') === s ? 'selected' : ''}>${s}</option>`)
+          .join('')}
+      </select>
+
+      <div class="c">
+        <h3>Customer confirmation</h3>
+        <p class="small">I confirm that I have reviewed the details in this QA report and that they accurately record the work and checks discussed with me. Any comments or concerns are recorded above.</p>
+        <label>Customer confirmation name</label>
+        <input name="customerConfirmName" value="${esc(j.customerName)}" required>
+        <label><input type="checkbox" name="customerConfirmed" value="yes" required> I confirm that the customer has reviewed and agreed to this report.</label>
+        <label>Customer signature</label>
+        <canvas class="signature" id="customerSignature"></canvas>
+        <button type="button" class="secondary" onclick="clearSignature('customerSignature')">Clear customer signature</button>
+      </div>
+
+      <div class="c">
+        <h3>Handyman declaration</h3>
+        <p class="small">I confirm that this report is an accurate record of the work and checks I carried out to the best of my knowledge.</p>
+        <label>Handyman signature</label>
+        <canvas class="signature" id="handymanSignature"></canvas>
+        <button type="button" class="secondary" onclick="clearSignature('handymanSignature')">Clear handyman signature</button>
+      </div>
+
+      <button type="button" class="w" onclick="saveQA('${esc(jobId)}')">Save QA report and generate PDF</button>
+    </form>
+  `);
+
+  renderQuestions();
+  initSignature('customerSignature');
+  initSignature('handymanSignature');
+}
+
+function renderQuestions() {
+  const type = $('#qaType').value;
+  const qs = TASKS[type] || TASKS['General maintenance'];
+  $('#qaQuestions').innerHTML = `
+    <div class="c">
+      <h3>Task-specific inspection checklist</h3>
+      <p class="small">Answer each question. Use Not Applicable only when the check genuinely does not apply. Add photos directly to the relevant check so the evidence appears beside it in the report.</p>
+      ${qs
+        .map(
+          (q, i) => `
+          <div class="question">
+            <b>${i + 1}. ${esc(q)}</b>
+            <div class="answers">
+              ${['Yes', 'No', 'Not Applicable']
+                .map(
+                  (a) =>
+                    `<label><input type="radio" name="answer${i}" value="${a}" ${a === 'Yes' ? 'checked' : ''}>${a}</label>`
+                )
+                .join('')}
+            </div>
+            <label class="small">Notes (optional)</label>
+            <textarea name="note${i}" placeholder="Record details, defects or follow-up actions"></textarea>
+            <label class="small">Photos for this check</label>
+            <input type="file" accept="image/*" capture="environment" multiple onchange="previewQuestionPhotos(this,${i})">
+            <div id="questionPhotos${i}" class="evidence-grid"></div>
+          </div>`
+        )
+        .join('')}
+    </div>
+  `;
+}
+
+async function readPhotoFiles(input) {
+  const out = [];
+  for (const f of input.files || []) {
+    if (!f.type.startsWith('image/')) continue;
+    if (f.size > 8 * 1024 * 1024) {
+      toast('A photo is over 8 MB and was skipped');
+      continue;
+    }
+    out.push({ name: f.name, type: f.type, data: await fileData(f) });
+  }
+  return out;
+}
+
+async function previewQuestionPhotos(input, index) {
+  questionPhotoFiles[index] = [
+    ...(questionPhotoFiles[index] || []),
+    ...(await readPhotoFiles(input))
+  ];
+  const el = $('#questionPhotos' + index);
+  if (el) {
+    el.innerHTML = questionPhotoFiles[index]
+      .map((p) => `<img src="${p.data}" alt="Evidence for checklist item ${index + 1}">`)
+      .join('');
+  }
+}
+
+async function previewPhotos(input) {
+  photoFiles = [...(photoFiles || []), ...(await readPhotoFiles(input))];
+  const el = $('#photoPreview');
+  if (el) {
+    el.innerHTML = photoFiles
+      .map((p) => `<img src="${p.data}" alt="General QA evidence photo">`)
+      .join('');
+  }
+}
+
+function initSignature(id) {
+  const c = $('#' + id);
+  if (!c) return;
+  const ctx = c.getContext('2d');
+  const scale = 2;
+  const w = c.clientWidth || 320;
+  c.width = w * scale;
+  c.height = 280;
+  ctx.lineWidth = 4;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  signatureState[id] = { canvas: c, ctx, drawn: false };
+
+  let active = false;
+  const point = (e) => {
+    const r = c.getBoundingClientRect();
+    return [
+      ((e.clientX - r.left) * c.width) / r.width,
+      ((e.clientY - r.top) * c.height) / r.height
+    ];
+  };
+
+  c.onpointerdown = (e) => {
+    active = true;
+    c.setPointerCapture(e.pointerId);
+    ctx.beginPath();
+    ctx.moveTo(...point(e));
+  };
+  c.onpointermove = (e) => {
+    if (active) {
+      ctx.lineTo(...point(e));
+      ctx.stroke();
+      signatureState[id].drawn = true;
+    }
+  };
+  c.onpointerup = c.onpointercancel = () => {
+    active = false;
+  };
+}
+
+function clearSignature(id) {
+  const s = signatureState[id];
+  if (s) {
+    s.ctx.clearRect(0, 0, s.canvas.width, s.canvas.height);
+    s.drawn = false;
+  }
+}
+
+async function saveQA(jobId) {
+  const form = $('#qaForm');
+  if (!form.reportValidity()) return;
+
+  const f = formData('qaForm');
+  if (!signatureState.customerSignature?.drawn || !signatureState.handymanSignature?.drawn) {
+    return toast('Both customer and handyman signatures are required');
+  }
+
+  const questionsList = TASKS[f.taskType] || TASKS['General maintenance'];
+  const answers = questionsList.map((qText, i) => ({
+    question: qText,
+    answer: form.querySelector(`[name="answer${i}"]:checked`)?.value || 'Not answered',
+    note: f['note' + i] || '',
+    photos: questionPhotoFiles[i] || []
+  }));
+
+  if (answers.some((a) => a.answer === 'Not answered')) {
+    return toast('Please answer every QA question');
+  }
+
+  const pdfWindow = window.open('about:blank', '_blank');
+  try {
+    const job = await get('jobs', jobId);
+    const report = {
+      id: uid(),
+      jobId,
+      jobRef: job.ref,
+      ...f,
+      answers,
+      photos: photoFiles || [],
+      customerSignature: signatureState.customerSignature.canvas.toDataURL('image/png'),
+      handymanSignature: signatureState.handymanSignature.canvas.toDataURL('image/png'),
+      created: Date.now()
+    };
+
+    await put('qaReports', report);
+
+    // Sync job record status & payment details
+    job.amount = Number(f.amountCharged) || 0;
+    job.paymentStatus = f.paymentStatus;
+    job.task = f.taskType;
+    job.status = 'Completed';
+    await put('jobs', job);
+
+    const blob = await makeQAPdf(report);
+    presentPdf(blob, `${report.jobRef}_QA_Report_${report.workDate}.pdf`, pdfWindow);
+    closeModal();
+    toast('QA report saved and PDF generated');
+    workspaceTab = 'qa';
+    await renderWorkspace();
+  } catch (e) {
+    if (pdfWindow) pdfWindow.close();
+    console.error(e);
+    toast('Could not generate QA PDF: ' + e.message);
+  }
+}
+
+// ============================================================================
+// 4. MULTI-PAGE QA PDF RENDERER
+// ============================================================================
+function wrapText(ctx, text, x, y, maxWidth, lineHeight) {
+  const words = String(text ?? '').split(/\s+/);
+  let line = '';
+  for (const word of words) {
+    const test = line ? line + ' ' + word : word;
+    if (ctx.measureText(test).width > maxWidth && line) {
+      ctx.fillText(line, x, y);
+      y += lineHeight;
+      line = word;
+    } else {
+      line = test;
+    }
+  }
+  if (line) ctx.fillText(line, x, y);
+  return y + lineHeight;
+}
+
+async function imageFromData(data) {
+  return new Promise((resolve, reject) => {
+    const im = new Image();
+    im.onload = () => resolve(im);
+    im.onerror = reject;
+    im.src = data;
+  });
+}
+
+async function makeQAPdf(r) {
+  const W = 595,
+    H = 842,
+    margin = 42,
+    canvas = document.createElement('canvas');
+  canvas.width = W * 2;
+  canvas.height = H * 2;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(2, 2);
+
+  let page = 0,
+    y;
+  let logoImg = null;
+  if (brand.logo) {
+    try {
+      logoImg = await imageFromData(brand.logo);
+    } catch (e) {
+      logoImg = null;
+    }
+  }
+
+  const pages = [];
+  function newPage() {
+    if (page) {
+      pages.push(canvas.toDataURL('image/jpeg', 0.88));
+    }
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = brand.color || '#0f5c5c';
+    ctx.fillRect(0, 0, W, 76);
+
+    let titleX = margin;
+    if (logoImg) {
+      const ratio = Math.min(42 / logoImg.width, 42 / logoImg.height);
+      const lw = logoImg.width * ratio,
+        lh = logoImg.height * ratio;
+      ctx.drawImage(logoImg, margin, 15, lw, lh);
+      titleX = margin + lw + 12;
+    }
+
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 17px Arial';
+    ctx.fillText(brand.name || 'Handyman', titleX, 29);
+    ctx.font = '11px Arial';
+    ctx.fillText(brand.slogan || '', titleX, 48);
+
+    ctx.textAlign = 'right';
+    ctx.font = 'bold 10px Arial';
+    ctx.fillText('QUALITY ASSURANCE REPORT', W - margin, 30);
+    ctx.textAlign = 'left';
+
+    ctx.fillStyle = '#14232f';
+    ctx.strokeStyle = '#cfd7dc';
+    ctx.beginPath();
+    ctx.moveTo(margin, H - 57);
+    ctx.lineTo(W - margin, H - 57);
+    ctx.stroke();
+
+    ctx.font = '8px Arial';
+    ctx.fillStyle = '#5b6b76';
+    const footerText = [brand.footer || brand.name, brand.phone, brand.email, brand.website]
+      .filter(Boolean)
+      .join('  |  ');
+    if (footerText) wrapText(ctx, footerText, margin, H - 43, W - 2 * margin, 10);
+
+    ctx.textAlign = 'right';
+    ctx.fillText('Page ' + (page + 1), W - margin, H - 20);
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#14232f';
+    y = 103;
+    page++;
+  }
+
+  newPage();
+
+  function ensure(n = 30) {
+    if (y + n > H - 82) newPage();
+  }
+  function heading(t) {
+    ensure(30);
+    ctx.fillStyle = brand.color || '#0f5c5c';
+    ctx.font = 'bold 13px Arial';
+    ctx.fillText(t, margin, y);
+    y += 20;
+    ctx.fillStyle = '#14232f';
+    ctx.font = '10px Arial';
+  }
+  function line(label, value) {
+    ensure(24);
+    ctx.font = 'bold 9px Arial';
+    ctx.fillText(label, margin, y);
+    ctx.font = '10px Arial';
+    y = wrapText(ctx, value, margin + 115, y, W - 2 * margin - 115, 13);
+  }
+  function para(t) {
+    ctx.font = '10px Arial';
+    ensure(28);
+    y = wrapText(ctx, t, margin, y, W - 2 * margin, 14);
+  }
+
+  heading('JOB AND CUSTOMER DETAILS');
+  line('Job reference', r.jobRef);
+  line('Task type', r.taskType);
+  line('Customer', r.customerName);
+  line('Customer address', r.customerAddress);
+  line('Handyman', r.handymanName);
+  line('Work address', r.jobAddress);
+  line('Work date', dateFmt(r.workDate));
+
+  heading('WORK CARRIED OUT');
+  para(r.workDescription);
+
+  heading('TASK-SPECIFIC QA CHECKLIST');
+  for (let i = 0; i < r.answers.length; i++) {
+    const a = r.answers[i];
+    ensure(48);
+    ctx.font = 'bold 9px Arial';
+    y = wrapText(ctx, `${i + 1}. ${a.question}`, margin, y, W - 2 * margin, 12);
+    ctx.font = 'bold 9px Arial';
+    ctx.fillStyle =
+      a.answer === 'Yes' ? '#1b7a43' : a.answer === 'No' ? '#b3261e' : '#5b6b76';
+    ctx.fillText('Answer: ' + a.answer, margin + 8, y);
+    ctx.fillStyle = '#14232f';
+    y += 13;
+
+    if (a.note) {
+      ctx.font = '9px Arial';
+      y = wrapText(ctx, 'Notes: ' + a.note, margin + 8, y, W - 2 * margin - 8, 12);
+    }
+
+    if (a.photos?.length) {
+      ctx.font = 'bold 8px Arial';
+      ctx.fillStyle = '#5b6b76';
+      ensure(18);
+      ctx.fillText('PHOTO EVIDENCE', margin + 8, y);
+      y += 8;
+      for (const p of a.photos) {
+        try {
+          const im = await imageFromData(p.data);
+          const maxW = 145,
+            maxH = 105,
+            scale = Math.min(maxW / im.width, maxH / im.height);
+          const iw = im.width * scale,
+            ih = im.height * scale;
+          ensure(ih + 12);
+          ctx.drawImage(im, margin + 8, y, iw, ih);
+          y += ih + 7;
+        } catch (e) {
+          para('An evidence photo could not be displayed.');
+        }
+      }
+      ctx.fillStyle = '#14232f';
+    }
+    y += 5;
+  }
+
+  heading('CUSTOMER NOTES');
+  para(r.customerNotes || 'No additional customer notes recorded.');
+
+  if (r.photos?.length) {
+    heading('ADDITIONAL JOB PHOTOGRAPHS');
+    for (const p of r.photos) {
+      try {
+        const im = await imageFromData(p.data);
+        const maxW = W - 2 * margin,
+          maxH = 150,
+          scale = Math.min(maxW / im.width, maxH / im.height);
+        const iw = im.width * scale,
+          ih = im.height * scale;
+        ensure(ih + 20);
+        ctx.drawImage(im, margin, y, iw, ih);
+        y += ih + 12;
+      } catch (e) {
+        para('An attached image could not be displayed in the PDF.');
+      }
+    }
+  }
+
+  heading('CUSTOMER CONFIRMATION');
+  para(
+    'I confirm that I have reviewed the details in this QA report and that they accurately record the work and checks discussed with me.'
+  );
+  line('Customer name', r.customerConfirmName);
+  ensure(90);
+  const cs = await imageFromData(r.customerSignature);
+  ctx.font = 'bold 9px Arial';
+  ctx.fillText('Customer signature', margin, y);
+  ctx.drawImage(cs, margin, y + 5, 170, 65);
+  y += 82;
+
+  heading('HANDYMAN DECLARATION');
+  para(
+    'I confirm that this report is an accurate record of the work and checks I carried out to the best of my knowledge.'
+  );
+  line('Handyman', r.handymanName);
+  ensure(90);
+  const hs = await imageFromData(r.handymanSignature);
+  ctx.font = 'bold 9px Arial';
+  ctx.fillText('Handyman signature', margin, y);
+  ctx.drawImage(hs, margin, y + 5, 170, 65);
+  y += 82;
+
+  heading('CHARGE AND PAYMENT');
+  line('Amount charged', GBP(r.amountCharged));
+  line('Payment status', r.paymentStatus);
+
+  pages.push(canvas.toDataURL('image/jpeg', 0.88));
+
+  await ensurePdfLib();
+  const pdf = await PDFLib.PDFDocument.create();
+  for (const data of pages) {
+    const bytes = Uint8Array.from(atob(data.split(',')[1]), (c) => c.charCodeAt(0));
+    const img = await pdf.embedJpg(bytes);
+    const pg = pdf.addPage([W, H]);
+    pg.drawImage(img, { x: 0, y: 0, width: W, height: H });
+  }
+  return new Blob([await pdf.save()], { type: 'application/pdf' });
+}
+
+async function downloadQA(id) {
+  const win = window.open('about:blank', '_blank');
+  try {
+    const r = await get('qaReports', id);
+    if (!r) throw new Error('Report not found');
+    const blob = await makeQAPdf(r);
+    presentPdf(blob, `${r.jobRef}_QA_Report_${r.workDate}.pdf`, win);
+  } catch (e) {
+    if (win) win.close();
+    toast('Could not open QA PDF: ' + e.message);
+  }
+}
+
+async function shareQA(id) {
+  try {
+    const r = await get('qaReports', id);
+    if (!r) throw new Error('Report not found');
+    const blob = await makeQAPdf(r);
+    await shareOrDownloadFile(
+      blob,
+      `${r.jobRef}_QA_Report_${r.workDate}.pdf`,
+      `QA Report ${r.jobRef}`
+    );
+  } catch (e) {
+    toast('Could not share QA PDF: ' + e.message);
+  }
+}
+
+// ============================================================================
+// 5. LEGAL PDF TEMPLATES, FORM FILLING & OVERLAY PLACEMENT
+// ============================================================================
+let legalSession = null;
+let legalPlacementMode = false;
+let legalSignatureState = null;
+
+async function ensurePdfLib() {
+  if (!window.PDFLib) {
+    await loadScript('https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js');
+  }
+}
+
+async function importLegalTemplate(input) {
+  const file = input.files?.[0];
+  if (!file) return;
+  if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
+    return toast('Please choose a PDF file');
+  }
+  if (file.size > 20 * 1024 * 1024) {
+    return toast('PDF is larger than 20 MB');
+  }
+  try {
+    const data = await fileData(file);
+    const rec = {
+      id: uid(),
+      name: file.name.replace(/\.pdf$/i, ''),
+      filename: file.name,
+      data,
+      created: Date.now()
+    };
+    await put('templates', rec);
+    toast('PDF template added to private library');
+    workspaceTab = 'legal';
+    await renderWorkspace();
+  } catch (e) {
+    toast('Could not import PDF: ' + e.message);
+  }
+}
+
+async function downloadTemplate(id) {
+  const t = await get('templates', id);
+  if (t) {
+    const blob = await (await fetch(t.data)).blob();
+    downloadBlob(blob, t.filename || t.name + '.pdf');
+  }
+}
+
+function confirmDeleteTemplate(id) {
+  modal(`
+    <h2>Delete template?</h2>
+    <p class="m">Remove this blank PDF template from your private library? Already-completed legal documents will not be affected.</p>
+    <button type="button" class="danger w" onclick="deleteTemplate('${esc(id)}')">Yes, delete template</button>
+  `);
+}
+
+async function deleteTemplate(id) {
+  await del('templates', id);
+  closeModal();
+  toast('Template removed');
+  await renderWorkspace();
+}
+
+async function chooseLegalJob(templateId) {
+  const js = (await all('jobs')).sort((a, b) => (b.created || 0) - (a.created || 0));
+  if (!js.length) return toast('Create a job before preparing its legal documents');
+  modal(`
+    <h2>Attach legal document to a job</h2>
+    <label>Choose job</label>
+    <select id="legalJobChoice">
+      ${js.map((j) => `<option value="${esc(j.id)}">${esc(j.ref)} · ${esc(j.customerName)}</option>`).join('')}
+    </select>
+    <button type="button" class="w" onclick="startLegalDocument('${esc(templateId)}', document.getElementById('legalJobChoice').value)">Continue</button>
+  `);
+}
+
+async function chooseLegalTemplate(jobId) {
+  const ts = (await all('templates')).sort((a, b) => (b.created || 0) - (a.created || 0));
+  if (!ts.length) return toast('Import a blank legal PDF template first');
+  modal(`
+    <h2>Choose legal template</h2>
+    ${ts
+      .map(
+        (t) => `
+        <div class="row">
+          <b>${esc(t.name)}</b>
+          <button type="button" onclick="startLegalDocument('${esc(t.id)}','${esc(jobId)}')">Use this</button>
+        </div>`
+      )
+      .join('')}
+  `);
+}
+
+async function startLegalDocument(templateId, jobId) {
+  try {
+    const t = await get('templates', templateId);
+    const j = await get('jobs', jobId);
+    if (!t || !j) throw new Error('Template or job not found');
+
+    await ensurePdfLib();
+    const bytes = await fetch(t.data).then((r) => r.arrayBuffer());
+    const pdf = await PDFLib.PDFDocument.load(bytes);
+    let fields = [];
+    try {
+      fields = pdf
+        .getForm()
+        .getFields()
+        .map((f) => ({ name: f.getName(), type: f.constructor.name }));
+    } catch (e) {}
+
+    legalSession = {
+      template: t,
+      job: j,
+      bytes,
+      pdf,
+      fields,
+      manual: [],
+      signature: null
+    };
+
+    if (fields.length) {
+      modal(`
+        <h2>Fill legal PDF</h2>
+        <p class="m">${esc(t.name)} · ${esc(j.ref)}. Detected ${fields.length} existing PDF form fields. Original wording is left untouched.</p>
+        <form id="legalFillForm">
+          ${fields
+            .map(
+              (f, i) => `
+              <label>${esc(f.name)} <span class="small">(${esc(f.type)})</span></label>
+              <input name="field_${i}" data-field="${esc(f.name)}" placeholder="Enter value">`
+            )
+            .join('')}
+          <label>Signatory name (optional record)</label>
+          <input name="signatory" placeholder="Full name">
+          <button type="button" class="secondary w" onclick="continueLegalWithPlacements()">Continue to add a signature or positioned text</button>
+          <button type="button" class="w" onclick="saveNativeLegalDocument()">Fill and save completed PDF</button>
+        </form>
+      `);
+    } else {
+      await openManualLegalEditor();
+    }
+  } catch (e) {
+    console.error(e);
+    toast('Could not open legal PDF: ' + e.message);
+  }
+}
+
+async function openManualLegalEditor() {
+  if (!window.pdfjsLib) {
+    await loadScript('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js');
+  }
+  pdfjsLib.GlobalWorkerOptions.workerSrc =
+    'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+  const doc = await pdfjsLib.getDocument({ data: legalSession.bytes.slice(0) }).promise;
+  legalSession.pageCount = doc.numPages;
+  legalSession.pdfjs = doc;
+  legalSession.placements = [];
+
+  modal(`
+    <h2>Prepare non-fillable PDF</h2>
+    <p class="m">No interactive form fields were detected (or you chose to add overlays). Tap the PDF preview to place text or a signature on blank areas. Original wording remains unchanged.</p>
+    <label>PDF page</label>
+    <select id="legalPage" onchange="renderLegalPage()">
+      ${Array.from({ length: doc.numPages }, (_, i) => `<option value="${i + 1}">Page ${i + 1}</option>`).join('')}
+    </select>
+    <canvas id="legalPreview" style="width:100%;border:1px solid #aaa;touch-action:manipulation"></canvas>
+    <div class="c" style="margin-top:10px">
+      <label>Text label (for your reference)</label>
+      <input id="legalOverlayText" placeholder="e.g. Customer name">
+      <label>Value to insert on PDF</label>
+      <input id="legalOverlayValue" placeholder="Enter the information to insert">
+      <button type="button" class="w" onclick="armLegalPlacement()">Tap PDF to place this text</button>
+      <div id="legalPlacementList" class="small" style="margin-top:8px"></div>
+    </div>
+    <div class="c">
+      <label>Signature (draw below, then tap PDF to place)</label>
+      <canvas id="legalSignature" class="signature"></canvas>
+      <button class="secondary" type="button" onclick="clearLegalSignature()">Clear signature</button>
+      <button type="button" class="w" onclick="armLegalSignature()">Tap PDF to place signature</button>
+    </div>
+    <button type="button" class="w" onclick="saveManualLegalDocument()">Apply entries and save completed PDF</button>
+  `);
+
+  initLegalSignature();
+  await renderLegalPage();
+}
+
+async function renderLegalPage() {
+  const n = Number($('#legalPage')?.value || 1);
+  const page = await legalSession.pdfjs.getPage(n);
+  const viewport = page.getViewport({ scale: 1.35 });
+  const canvas = $('#legalPreview');
+  canvas.width = viewport.width;
+  canvas.height = viewport.height;
+  canvas.style.width = '100%';
+  canvas.style.height = 'auto';
+
+  await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+
+  canvas.onclick = (e) => {
+    if (!legalPlacementMode) return;
+    const r = canvas.getBoundingClientRect();
+    const x = (e.clientX - r.left) / r.width;
+    const y = (e.clientY - r.top) / r.height;
+
+    if (legalPlacementMode === 'text') {
+      const label = $('#legalOverlayText').value.trim();
+      const value = $('#legalOverlayValue').value;
+      if (!label || !value) return toast('Enter both a field label and value');
+      legalSession.placements.push({ kind: 'text', label, value, page: n, x, y });
+      $('#legalOverlayText').value = '';
+      $('#legalOverlayValue').value = '';
+    } else if (legalPlacementMode === 'signature') {
+      if (!legalSignatureState?.drawn) return toast('Please draw the signature first');
+      legalSession.placements.push({
+        kind: 'signature',
+        label: 'Signature',
+        data: $('#legalSignature').toDataURL('image/png'),
+        page: n,
+        x,
+        y
+      });
+    }
+
+    legalPlacementMode = false;
+    renderLegalPlacementList();
+    toast('Placement added');
+  };
+}
+
+function armLegalPlacement() {
+  legalPlacementMode = 'text';
+  toast('Tap the PDF where the text should appear');
+}
+
+function armLegalSignature() {
+  legalPlacementMode = 'signature';
+  toast('Tap the PDF where the signature should appear');
+}
+
+function renderLegalPlacementList() {
+  const el = $('#legalPlacementList');
+  if (!el) return;
+  el.innerHTML =
+    legalSession.placements
+      .map(
+        (p, i) =>
+          `<div style="margin:4px 0">${i + 1}. ${esc(p.label)}: ${p.kind === 'text' ? esc(p.value) : 'Signature'} (page ${p.page}) <button type="button" class="secondary" style="min-height:32px;padding:2px 8px" onclick="removeLegalPlacement(${i})">Remove</button></div>`
+      )
+      .join('') || 'No placements added yet.';
+}
+
+function removeLegalPlacement(i) {
+  legalSession.placements.splice(i, 1);
+  renderLegalPlacementList();
+}
+
+function initLegalSignature() {
+  const c = $('#legalSignature');
+  if (!c) return;
+  const ctx = c.getContext('2d');
+  c.width = 900;
+  c.height = 260;
+  ctx.lineWidth = 5;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  legalSignatureState = { drawn: false };
+
+  let down = false;
+  const pt = (e) => {
+    const r = c.getBoundingClientRect();
+    return [
+      ((e.clientX - r.left) * c.width) / r.width,
+      ((e.clientY - r.top) * c.height) / r.height
+    ];
+  };
+
+  c.onpointerdown = (e) => {
+    down = true;
+    c.setPointerCapture(e.pointerId);
+    ctx.beginPath();
+    ctx.moveTo(...pt(e));
+  };
+  c.onpointermove = (e) => {
+    if (down) {
+      ctx.lineTo(...pt(e));
+      ctx.stroke();
+      legalSignatureState.drawn = true;
+    }
+  };
+  c.onpointerup = c.onpointercancel = () => {
+    down = false;
+  };
+}
+
+function clearLegalSignature() {
+  const c = $('#legalSignature');
+  if (c) {
+    c.getContext('2d').clearRect(0, 0, c.width, c.height);
+  }
+  if (legalSignatureState) legalSignatureState.drawn = false;
+}
+
+async function continueLegalWithPlacements() {
+  legalSession.nativeValues = formData('legalFillForm');
+  await openManualLegalEditor();
+}
+
+async function applyNativeLegalValues() {
+  if (!legalSession.nativeValues) return;
+  const form = legalSession.pdf.getForm();
+  const f = legalSession.nativeValues;
+  for (let i = 0; i < legalSession.fields.length; i++) {
+    const field = legalSession.fields[i];
+    const value = f['field_' + i] || '';
+    const obj = form.getField(field.name);
+    if (obj.setText) obj.setText(value);
+    else if (obj.check || obj.uncheck) {
+      if (value === 'Yes' || value === 'true' || value === '1') obj.check();
+      else obj.uncheck();
+    } else if (obj.select && value) obj.select(value);
+  }
+}
+
+async function saveNativeLegalDocument() {
+  try {
+    const f = formData('legalFillForm');
+    const form = legalSession.pdf.getForm();
+    for (let i = 0; i < legalSession.fields.length; i++) {
+      const field = legalSession.fields[i];
+      const value = f['field_' + i] || '';
+      const obj = form.getField(field.name);
+      if (obj.setText) obj.setText(value);
+      else if (obj.check || obj.uncheck) {
+        if (value === 'Yes' || value === 'true' || value === '1') obj.check();
+        else obj.uncheck();
+      } else if (obj.select && value) obj.select(value);
+    }
+    form.flatten();
+    const bytes = await legalSession.pdf.save();
+    await storeCompletedLegal(bytes, f.signatory || '', []);
+  } catch (e) {
+    console.error(e);
+    toast('Could not fill this PDF: ' + e.message);
+  }
+}
+
+async function saveManualLegalDocument() {
+  if (!legalSession.placements.length) {
+    return toast('Add at least one text placement or signature');
+  }
+  try {
+    await applyNativeLegalValues();
+    const font = await legalSession.pdf.embedFont(PDFLib.StandardFonts.Helvetica);
+    for (const p of legalSession.placements) {
+      const page = legalSession.pdf.getPage(p.page - 1);
+      const size = page.getSize();
+      const x = p.x * size.width;
+      const y = (1 - p.y) * size.height;
+
+      if (p.kind === 'text') {
+        page.drawText(String(p.value), {
+          x,
+          y,
+          size: 10,
+          font,
+          color: PDFLib.rgb(0, 0, 0),
+          maxWidth: Math.max(60, size.width - x - 20)
+        });
+      } else {
+        const img = await legalSession.pdf.embedPng(p.data);
+        const dims = img.scale(Math.min(1, 170 / img.width));
+        page.drawImage(img, {
+          x,
+          y: y - 32,
+          width: dims.width,
+          height: dims.height
+        });
+      }
+    }
+    const bytes = await legalSession.pdf.save();
+    await storeCompletedLegal(bytes, '', legalSession.placements);
+  } catch (e) {
+    console.error(e);
+    toast('Could not save completed PDF: ' + e.message);
+  }
+}
+
+async function storeCompletedLegal(bytes, signatory, placements) {
+  const blob = new Blob([bytes], { type: 'application/pdf' });
+  const data = await fileData(new File([blob], 'completed.pdf', { type: 'application/pdf' }));
+  const j = legalSession.job;
+  const t = legalSession.template;
+
+  const rec = {
+    id: uid(),
+    jobId: j.id,
+    jobRef: j.ref,
+    templateId: t.id,
+    name: t.name + ' - ' + j.ref,
+    filename: (j.ref + '_' + t.name).replace(/[^a-z0-9-_]+/gi, '_') + '_completed.pdf',
+    data,
+    signatory,
+    placements,
+    created: Date.now()
+  };
+
+  await put('docs', rec);
+  closeModal();
+  toast('Completed legal PDF saved against ' + j.ref);
+  workspaceTab = 'legal';
+  await renderWorkspace();
+}
+
+async function downloadLegalDoc(id) {
+  const d = await get('docs', id);
+  if (!d) return toast('Document not found');
+  const blob = await fetch(d.data).then((r) => r.blob());
+  downloadBlob(blob, d.filename || d.name + '.pdf');
+}
+
+async function shareLegalDoc(id) {
+  const d = await get('docs', id);
+  if (!d) return toast('Document not found');
+  const blob = await fetch(d.data).then((r) => r.blob());
+  await shareOrDownloadFile(blob, d.filename || d.name + '.pdf', d.name);
+}
+
+// ============================================================================
+// 6. BOOTSTRAP & CROSS-PAGE URL PARAMETER HANDLING
+// ============================================================================
+(async () => {
+  try {
+    const { params } = await initCore('legalQa');
+
+    if (params.tab === 'legal' || params.action === 'start-legal' || params.docId) {
+      workspaceTab = 'legal';
+    } else {
+      workspaceTab = 'qa';
+    }
+
+    await renderWorkspace();
+
+    // Handle cross-page triggers from index.html & archive.html
+    if (params.action === 'start-qa' && params.jobId) {
+      clearQueryParams();
+      await qaForm(params.jobId);
+    } else if (params.action === 'start-legal' && params.jobId) {
+      clearQueryParams();
+      await chooseLegalTemplate(params.jobId);
+    } else if (params.reportId) {
+      const reportId = params.reportId;
+      clearQueryParams();
+      await downloadQA(reportId);
+    } else if (params.docId) {
+      const docId = params.docId;
+      clearQueryParams();
+      await downloadLegalDoc(docId);
+    }
+  } catch (e) {
+    console.error('Legal & QA boot error:', e);
+  }
+})();
+</script>
+</body>
+</html>
