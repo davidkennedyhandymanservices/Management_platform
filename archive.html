@@ -1,0 +1,946 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#0f5c5c">
+<title>Handyman Manager · Customers &amp; Jobs</title>
+<style>
+:root{--ink:#14232f;--bg:#e9edef;--card:#fff;--ac:#0f5c5c;--tape:#f2c230;--mut:#5b6b76;--bad:#b3261e;--ok:#1b7a43;--ln:#cfd7dc}
+*{box-sizing:border-box}
+body{margin:0;font:16px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;background:var(--bg);color:var(--ink);padding-bottom:calc(76px + env(safe-area-inset-bottom))}
+header{background:var(--ac);color:white;padding:calc(12px + env(safe-area-inset-top)) 16px 12px;border-bottom:5px solid var(--tape);position:sticky;top:0;z-index:5}
+header b{font-size:18px}
+header small{display:block;opacity:.85}
+main{max-width:760px;margin:auto;padding:14px}
+.c{background:white;border:1px solid var(--ln);border-radius:10px;padding:14px;margin-bottom:12px}
+h2,h3{margin:0 0 10px}
+.m{color:var(--mut);font-size:14px}
+button{font:inherit;min-height:46px;padding:8px 14px;border:0;border-radius:8px;background:var(--ac);color:white;font-weight:650;margin:3px 3px 3px 0;cursor:pointer}
+button.secondary{background:white;color:var(--ac);border:2px solid var(--ac)}
+button.w{width:100%}
+button.danger{background:#9e2525}
+input,select,textarea{font:inherit;width:100%;min-height:45px;padding:9px;border:1px solid #9aa8b0;border-radius:8px;margin:3px 0 10px;background:white;color:var(--ink)}
+textarea{min-height:82px}
+label{font-weight:650;font-size:14px;display:block}
+.row{display:flex;justify-content:space-between;gap:10px;padding:9px 0;border-bottom:1px solid var(--ln);align-items:center}
+.row:last-child{border:0}
+.clickable{cursor:pointer}
+nav{position:fixed;bottom:0;left:0;right:0;display:flex;background:white;border-top:1px solid var(--ln);padding-bottom:env(safe-area-inset-bottom);z-index:6}
+nav button{flex:1;background:none;color:var(--mut);border-radius:0;margin:0;min-height:58px;font-size:12px;padding:4px}
+nav button.on{color:var(--ac);box-shadow:inset 0 3px var(--tape)}
+.tabs{display:flex;gap:8px;margin-bottom:12px}
+.tabs button{flex:1;margin:0}
+.tabs button.off{background:white;color:var(--ac);border:2px solid var(--ac)}
+.tag{background:var(--tape);color:#111;border-radius:6px;padding:2px 7px;font-size:12px;font-weight:700;white-space:nowrap}
+.commercial-card{border:1px solid var(--ln);border-radius:9px;padding:10px;margin:9px 0}
+.commercial-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.small{font-size:12px;color:var(--mut)}
+#toast{position:fixed;left:50%;transform:translateX(-50%);bottom:88px;background:#14232f;color:white;padding:10px 15px;border-radius:8px;display:none;z-index:10;max-width:90%;text-align:center}
+dialog{width:min(650px,96%);max-height:92vh;border:0;border-radius:14px;padding:16px;overflow:auto}
+dialog::backdrop{background:#0008}
+</style>
+</head>
+<body>
+<main id="view"></main>
+
+<!-- Load shared platform core -->
+<script src="core.js"></script>
+<script>
+"use strict";
+
+// Task types list so job forms stay aligned with legal-qa.html checklists
+const TASK_TYPES = [
+  'Garden gate repair',
+  'Hanging shelves or hooks',
+  'Replacing silicone sealant',
+  'Flat-pack furniture assembly',
+  'Painting and decorating',
+  'Minor plumbing repair',
+  'Door adjustment or repair',
+  'Curtain pole or blind installation',
+  'Tile or grout repair',
+  'Fence panel repair',
+  'Lock or handle replacement',
+  'Gutter or downpipe minor repair',
+  'Picture or mirror hanging',
+  'General maintenance',
+  'Other / bespoke task'
+];
+
+let archiveState = {
+  view: 'jobs', // 'jobs' | 'customers' | 'job' | 'customer'
+  id: null,
+  filter: 'all', // 'all' | 'active' | 'completed'
+  search: ''
+};
+
+function switchView(view, id = null, filter = archiveState.filter) {
+  archiveState.view = view;
+  archiveState.id = id;
+  archiveState.filter = filter;
+  renderArchive();
+}
+
+function setSearch(val) {
+  archiveState.search = val.trim().toLowerCase();
+  renderArchive(true);
+}
+
+// ============================================================================
+// MAIN RENDERER
+// ============================================================================
+async function renderArchive(preserveFocus = false) {
+  const viewEl = $('#view');
+  try {
+    if (archiveState.view === 'customer' && archiveState.id) {
+      viewEl.innerHTML = await renderCustomerDetail(archiveState.id);
+    } else if (archiveState.view === 'job' && archiveState.id) {
+      viewEl.innerHTML = await renderJobDetail(archiveState.id);
+    } else if (archiveState.view === 'customers') {
+      viewEl.innerHTML = await renderCustomersList();
+    } else {
+      viewEl.innerHTML = await renderJobsList();
+    }
+
+    if (preserveFocus) {
+      const searchInput = $('#archiveSearch');
+      if (searchInput) {
+        searchInput.focus();
+        searchInput.setSelectionRange(searchInput.value.length, searchInput.value.length);
+      }
+    } else {
+      window.scrollTo(0, 0);
+    }
+  } catch (e) {
+    console.error(e);
+    viewEl.innerHTML = `<div class="c"><b style="color:var(--bad)">Error:</b> ${esc(e.message)}</div>`;
+  }
+}
+
+function renderSubTabs(activeTab) {
+  return `
+    <div class="tabs">
+      <button type="button" class="${activeTab === 'jobs' ? '' : 'off'}" onclick="switchView('jobs')">Jobs</button>
+      <button type="button" class="${activeTab === 'customers' ? '' : 'off'}" onclick="switchView('customers')">Customers</button>
+    </div>
+  `;
+}
+
+// ============================================================================
+// CUSTOMERS LIST & DETAIL
+// ============================================================================
+async function renderCustomersList() {
+  const allCustomers = (await all('customers')).sort((a, b) =>
+    (a.name || '').localeCompare(b.name || '')
+  );
+  const q = archiveState.search;
+  const filtered = q
+    ? allCustomers.filter(
+        (c) =>
+          (c.name || '').toLowerCase().includes(q) ||
+          (c.phone || '').toLowerCase().includes(q) ||
+          (c.email || '').toLowerCase().includes(q) ||
+          (c.address || '').toLowerCase().includes(q)
+      )
+    : allCustomers;
+
+  return `
+    ${renderSubTabs('customers')}
+    <div class="c">
+      <h2>Customers (${allCustomers.length})</h2>
+      <input id="archiveSearch" type="search" placeholder="Search name, phone, email or address..." value="${esc(archiveState.search)}" oninput="setSearch(this.value)">
+      <button class="w" onclick="customerForm()">+ Add customer</button>
+    </div>
+    ${
+      filtered.length
+        ? filtered
+            .map(
+              (c) => `
+              <div class="c clickable" onclick="switchView('customer', '${esc(c.id)}')">
+                <b>${esc(c.name)}</b>
+                <div class="m">${[c.phone, c.email].filter(Boolean).map(esc).join(' · ') || 'No contact details'}</div>
+                ${c.address ? `<div class="small" style="margin-top:4px">${esc(c.address)}</div>` : ''}
+              </div>`
+            )
+            .join('')
+        : `<div class="c"><p class="m">${q ? 'No customers match your search.' : 'No customers added yet.'}</p></div>`
+    }
+  `;
+}
+
+async function renderCustomerDetail(id) {
+  const c = await get('customers', id);
+  if (!c) return `<div class="c"><p>Customer not found.</p><button class="secondary" onclick="switchView('customers')">Back to customers</button></div>`;
+
+  const jobs = (await all('jobs'))
+    .filter((j) => j.customerId === id)
+    .sort((a, b) => (b.created || 0) - (a.created || 0));
+
+  return `
+    <button class="secondary" style="margin-bottom:10px" onclick="switchView('customers')">&larr; All customers</button>
+    <h2>${esc(c.name)}</h2>
+    <div class="c">
+      ${c.phone ? `<div><b>Phone:</b> <a href="tel:${esc(c.phone)}">${esc(c.phone)}</a></div>` : ''}
+      ${c.email ? `<div><b>Email:</b> <a href="mailto:${esc(c.email)}">${esc(c.email)}</a></div>` : ''}
+      ${c.address ? `<p><b>Address:</b><br>${esc(c.address).replace(/\n/g, '<br>')}</p>` : ''}
+      ${c.notes ? `<p><b>Notes:</b><br>${esc(c.notes).replace(/\n/g, '<br>')}</p>` : ''}
+      <div style="margin-top:10px">
+        <button onclick="customerForm('${esc(id)}')">Edit customer</button>
+        <button class="secondary" onclick="jobForm('${esc(id)}')">+ New job</button>
+        <button class="danger" onclick="confirmDeleteCustomer('${esc(id)}')">Delete</button>
+      </div>
+    </div>
+
+    <div class="c">
+      <h3>Jobs for this customer (${jobs.length})</h3>
+      ${
+        jobs.length
+          ? jobs
+              .map(
+                (j) => `
+                <div class="row clickable" onclick="switchView('job', '${esc(j.id)}')">
+                  <span>
+                    <b>${esc(j.ref)}</b>
+                    <div class="m">${esc(j.task || j.description)}</div>
+                  </span>
+                  <span class="tag">${esc(j.status)}</span>
+                </div>`
+              )
+              .join('')
+          : '<p class="m">No jobs recorded for this customer yet.</p>'
+      }
+    </div>
+  `;
+}
+
+// ============================================================================
+// JOBS LIST & DETAIL
+// ============================================================================
+async function renderJobsList() {
+  const allJobs = (await all('jobs')).sort((a, b) => (b.created || 0) - (a.created || 0));
+  const q = archiveState.search;
+
+  const filtered = allJobs.filter((j) => {
+    if (archiveState.filter === 'active' && ['Completed', 'Cancelled'].includes(j.status)) return false;
+    if (archiveState.filter === 'completed' && j.status !== 'Completed') return false;
+    if (q) {
+      const hay = `${j.ref} ${j.customerName} ${j.customerAddress} ${j.description} ${j.task} ${j.status}`.toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+
+  return `
+    ${renderSubTabs('jobs')}
+    <div class="c">
+      <h2>Jobs (${allJobs.length})</h2>
+      <input id="archiveSearch" type="search" placeholder="Search job ref, customer, work or status..." value="${esc(archiveState.search)}" oninput="setSearch(this.value)">
+      <div style="margin-bottom:8px">
+        <button type="button" class="${archiveState.filter === 'all' ? '' : 'secondary'}" onclick="switchView('jobs', null, 'all')">All</button>
+        <button type="button" class="${archiveState.filter === 'active' ? '' : 'secondary'}" onclick="switchView('jobs', null, 'active')">Active</button>
+        <button type="button" class="${archiveState.filter === 'completed' ? '' : 'secondary'}" onclick="switchView('jobs', null, 'completed')">Completed</button>
+      </div>
+      <button class="w" onclick="jobForm()">+ Create job</button>
+    </div>
+    ${
+      filtered.length
+        ? filtered
+            .map(
+              (j) => `
+              <div class="c clickable" onclick="switchView('job', '${esc(j.id)}')">
+                <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+                  <b>${esc(j.ref)} · ${esc(j.customerName)}</b>
+                  <span class="tag">${esc(j.status)}</span>
+                </div>
+                <p style="margin:6px 0">${esc(j.task || j.description)}</p>
+                <div class="m">${GBP(j.amount)} · ${esc(j.paymentStatus || 'Not recorded')}</div>
+              </div>`
+            )
+            .join('')
+        : `<div class="c"><p class="m">${q || archiveState.filter !== 'all' ? 'No jobs match the current filter.' : 'No jobs recorded yet.'}</p></div>`
+    }
+  `;
+}
+
+async function renderJobDetail(id) {
+  const j = await get('jobs', id);
+  if (!j) return `<div class="c"><p>Job not found.</p><button class="secondary" onclick="switchView('jobs')">Back to jobs</button></div>`;
+
+  const [reports, quotes, invoices, legalDocs] = await Promise.all([
+    all('qaReports').then((list) => list.filter((r) => r.jobId === id).sort((a, b) => b.created - a.created)),
+    all('quotes').then((list) => list.filter((q) => q.jobId === id).sort((a, b) => b.created - a.created)),
+    all('invoices').then((list) => list.filter((inv) => inv.jobId === id).sort((a, b) => b.created - a.created)),
+    all('docs').then((list) => list.filter((d) => d.jobId === id).sort((a, b) => b.created - a.created))
+  ]);
+
+  return `
+    <button class="secondary" style="margin-bottom:10px" onclick="switchView('jobs')">&larr; All jobs</button>
+    <h2>${esc(j.ref)}</h2>
+
+    <div class="c">
+      <span class="tag">${esc(j.status)}</span>
+      <p>
+        <b class="clickable" style="text-decoration:underline" onclick="switchView('customer', '${esc(j.customerId)}')">${esc(j.customerName)}</b><br>
+        ${esc(j.customerAddress)}
+      </p>
+      <p>${esc(j.description)}</p>
+      ${j.task ? `<div class="row"><span>Task category</span><b>${esc(j.task)}</b></div>` : ''}
+      <div class="row"><span>Agreed amount</span><b>${GBP(j.amount)}</b></div>
+      <div class="row"><span>Payment status</span><b>${esc(j.paymentStatus || 'Not recorded')}</b></div>
+
+      <label style="margin-top:10px">Update job status</label>
+      <select onchange="updateJobField('${esc(id)}', 'status', this.value)">
+        ${['Enquiry', 'Quoted', 'Accepted', 'Scheduled', 'In progress', 'Completed', 'Cancelled']
+          .map((s) => `<option ${j.status === s ? 'selected' : ''}>${s}</option>`)
+          .join('')}
+      </select>
+
+      <label>Update payment status</label>
+      <select onchange="updateJobField('${esc(id)}', 'paymentStatus', this.value)">
+        ${['Not applicable', 'Not paid', 'To be paid', 'Part-paid', 'Paid']
+          .map((s) => `<option ${(j.paymentStatus || 'Not paid') === s ? 'selected' : ''}>${s}</option>`)
+          .join('')}
+      </select>
+
+      <div style="margin-top:8px">
+        <button onclick="jobForm('', '${esc(id)}')">Edit job</button>
+        <button class="danger" onclick="confirmDeleteJob('${esc(id)}')">Delete job</button>
+      </div>
+    </div>
+
+    <div class="c">
+      <h3>Quality assurance (${reports.length})</h3>
+      <p class="m">Task-specific QA reports and photographic evidence are managed in the Legal &amp; QA workspace.</p>
+      <button class="w" onclick="navigateTo('legal-qa.html', { action: 'start-qa', jobId: '${esc(id)}' })">+ Create QA report</button>
+      ${
+        reports.length
+          ? reports
+              .map(
+                (r) => `
+                <div class="row">
+                  <span>
+                    <b>${esc(r.taskType)}</b>
+                    <div class="m">${dateFmt(r.workDate)} · ${esc(r.customerName)}</div>
+                  </span>
+                  <button class="secondary" onclick="navigateTo('legal-qa.html', { tab: 'qa', reportId: '${esc(r.id)}' })">Open PDF</button>
+                </div>`
+              )
+              .join('')
+          : '<p class="m">No QA reports for this job yet.</p>'
+      }
+    </div>
+
+    <div class="c">
+      <h3>Legal documents (${legalDocs.length})</h3>
+      <p class="m">Fill and sign your own legal PDF templates for this job in Legal &amp; QA.</p>
+      <button class="secondary w" onclick="navigateTo('legal-qa.html', { action: 'start-legal', jobId: '${esc(id)}' })">+ Add legal PDF for this job</button>
+      ${
+        legalDocs.length
+          ? legalDocs
+              .map(
+                (d) => `
+                <div class="row">
+                  <span>
+                    <b>${esc(d.name)}</b>
+                    <div class="m">${new Date(d.created).toLocaleDateString('en-GB')}</div>
+                  </span>
+                  <button class="secondary" onclick="navigateTo('legal-qa.html', { tab: 'legal', docId: '${esc(d.id)}' })">Open PDF</button>
+                </div>`
+              )
+              .join('')
+          : ''
+      }
+    </div>
+
+    <div class="c">
+      <h3>Quotations (${quotes.length})</h3>
+      <button class="secondary w" onclick="quoteForm('${esc(id)}')">+ Create quotation</button>
+      ${
+        quotes.length
+          ? quotes
+              .map(
+                (q) => `
+                <div class="commercial-card">
+                  <b>${esc(q.documentNumber || 'Quotation')}</b> · ${GBP(q.total)}
+                  <div class="m">${dateFmt(q.createdDate || '')} · ${esc(q.status || 'Draft')}</div>
+                  <div class="commercial-actions">
+                    <button onclick="openCommercialPdf('quote', '${esc(q.id)}')">View / Save PDF</button>
+                    <button class="secondary" onclick="shareCommercialPdf('quote', '${esc(q.id)}')">Share</button>
+                    <button class="secondary" onclick="quoteForm('${esc(id)}', '${esc(q.id)}')">Edit</button>
+                  </div>
+                </div>`
+              )
+              .join('')
+          : '<p class="m">New quotations will remain listed here after saving.</p>'
+      }
+    </div>
+
+    <div class="c">
+      <h3>Invoices (${invoices.length})</h3>
+      <button class="secondary w" onclick="invoiceForm('${esc(id)}')">+ Create invoice</button>
+      ${
+        invoices.length
+          ? invoices
+              .map(
+                (inv) => `
+                <div class="commercial-card">
+                  <b>${esc(inv.documentNumber || 'Invoice')}</b> · ${GBP(inv.total)}
+                  <div class="m">${dateFmt(inv.createdDate || '')} · ${esc(inv.status || 'Not paid')}</div>
+                  <div class="commercial-actions">
+                    <button onclick="openCommercialPdf('invoice', '${esc(inv.id)}')">View / Save PDF</button>
+                    <button class="secondary" onclick="shareCommercialPdf('invoice', '${esc(inv.id)}')">Share</button>
+                    <button class="secondary" onclick="invoiceForm('${esc(id)}', '${esc(inv.id)}')">Edit</button>
+                  </div>
+                </div>`
+              )
+              .join('')
+          : '<p class="m">New invoices will remain listed here after saving.</p>'
+      }
+    </div>
+  `;
+}
+
+// ============================================================================
+// CUSTOMER & JOB MODALS + CRUD
+// ============================================================================
+async function customerForm(id = '') {
+  const c = id ? await get('customers', id) : {};
+  modal(`
+    <h2>${id ? 'Edit' : 'New'} customer</h2>
+    <form id="customerForm" onsubmit="event.preventDefault();saveCustomer('${esc(id)}')">
+      <label>Customer full name</label>
+      <input name="name" required value="${esc(c.name || '')}">
+      <label>Phone</label>
+      <input name="phone" type="tel" value="${esc(c.phone || '')}">
+      <label>Email</label>
+      <input name="email" type="email" value="${esc(c.email || '')}">
+      <label>Customer / property address</label>
+      <textarea name="address">${esc(c.address || '')}</textarea>
+      <label>Notes</label>
+      <textarea name="notes">${esc(c.notes || '')}</textarea>
+      <button type="submit" class="w">Save customer</button>
+    </form>
+  `);
+}
+
+async function saveCustomer(id) {
+  const f = formData('customerForm');
+  if (!f.name || !f.name.trim()) return toast('Enter the customer name');
+  const existing = id ? await get('customers', id) : null;
+  const record = {
+    ...(existing || {}),
+    ...f,
+    name: f.name.trim(),
+    id: id || uid(),
+    created: existing?.created || Date.now()
+  };
+  await put('customers', record);
+  closeModal();
+  toast('Customer saved');
+  switchView('customer', record.id);
+}
+
+function confirmDeleteCustomer(id) {
+  modal(`
+    <h2>Delete customer?</h2>
+    <p class="m">This will remove the customer record from this device. Existing job records will remain in the archive.</p>
+    <button type="button" class="danger w" onclick="deleteCustomer('${esc(id)}')">Yes, delete customer</button>
+  `);
+}
+
+async function deleteCustomer(id) {
+  await del('customers', id);
+  closeModal();
+  toast('Customer deleted');
+  switchView('customers');
+}
+
+async function jobForm(customerId = '', jobId = '') {
+  const cs = (await all('customers')).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  if (!cs.length && !customerId) {
+    toast('Add a customer first');
+    return customerForm();
+  }
+  const j = jobId ? await get('jobs', jobId) : {};
+  modal(`
+    <h2>${jobId ? 'Edit' : 'Create'} job</h2>
+    <form id="jobForm" onsubmit="event.preventDefault();saveJob('${esc(jobId)}')">
+      <label>Customer</label>
+      <select name="customerId">
+        ${cs
+          .map(
+            (c) =>
+              `<option value="${esc(c.id)}" ${(j.customerId || customerId) === c.id ? 'selected' : ''}>${esc(c.name)}</option>`
+          )
+          .join('')}
+      </select>
+      <label>Job address (leave blank to use customer address)</label>
+      <textarea name="customerAddress">${esc(j.customerAddress || '')}</textarea>
+      <label>Work description</label>
+      <textarea name="description" required>${esc(j.description || '')}</textarea>
+      <label>Task type (optional)</label>
+      <select name="task">
+        <option value="">Choose later in QA</option>
+        ${TASK_TYPES.map((t) => `<option ${j.task === t ? 'selected' : ''}>${esc(t)}</option>`).join('')}
+      </select>
+      <label>Agreed amount (£)</label>
+      <input name="amount" type="number" step=".01" min="0" value="${j.amount ?? ''}">
+      <label>Payment status</label>
+      <select name="paymentStatus">
+        ${['Not applicable', 'Not paid', 'To be paid', 'Part-paid', 'Paid']
+          .map((s) => `<option ${(j.paymentStatus || 'Not paid') === s ? 'selected' : ''}>${s}</option>`)
+          .join('')}
+      </select>
+      <button type="submit" class="w">Save job</button>
+    </form>
+  `);
+}
+
+async function saveJob(id) {
+  const f = formData('jobForm');
+  const c = await get('customers', f.customerId);
+  if (!c) return toast('Please choose a customer');
+  if (!f.description || !f.description.trim()) return toast('Describe the work');
+
+  const old = id ? await get('jobs', id) : null;
+  const record = {
+    ...(old || {}),
+    id: id || uid(),
+    ref: old?.ref || 'JOB-' + String(Date.now()).slice(-7),
+    customerId: c.id,
+    customerName: c.name,
+    customerAddress: (f.customerAddress || '').trim() || c.address || '',
+    description: f.description.trim(),
+    task: f.task || '',
+    amount: Number(f.amount) || 0,
+    paymentStatus: f.paymentStatus || 'Not paid',
+    status: old?.status || 'Enquiry',
+    created: old?.created || Date.now()
+  };
+
+  await put('jobs', record);
+  closeModal();
+  toast('Job saved');
+  switchView('job', record.id);
+}
+
+async function updateJobField(id, key, value) {
+  const j = await get('jobs', id);
+  if (!j) return;
+  j[key] = value;
+  await put('jobs', j);
+  toast('Job updated');
+  if (archiveState.view === 'job' && archiveState.id === id) {
+    renderArchive();
+  }
+}
+
+function confirmDeleteJob(id) {
+  modal(`
+    <h2>Delete job?</h2>
+    <p class="m">Are you sure you want to delete this job record?</p>
+    <button type="button" class="danger w" onclick="deleteJob('${esc(id)}')">Yes, delete job</button>
+  `);
+}
+
+async function deleteJob(id) {
+  await del('jobs', id);
+  closeModal();
+  toast('Job deleted');
+  switchView('jobs');
+}
+
+// ============================================================================
+// QUOTATIONS & INVOICES + BRANDED PDF GENERATOR
+// ============================================================================
+function parseLineItems(text) {
+  return String(text || '')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const parts = line.split('|');
+      const description = (parts[0] || '').trim();
+      const amount = Number((parts[1] || '0').trim().replace(/£/g, '')) || 0;
+      return { description, amount };
+    });
+}
+
+function totalItems(items) {
+  return items.reduce((sum, x) => sum + (Number(x.amount) || 0), 0);
+}
+
+async function quoteForm(jobId, quoteId = '') {
+  const j = await get('jobs', jobId);
+  const q = quoteId ? await get('quotes', quoteId) : {};
+  modal(`
+    <h2>${quoteId ? 'Edit' : 'Create'} quotation</h2>
+    <p class="m">${esc(j.ref)} · ${esc(j.customerName)}</p>
+    <form id="quoteForm" onsubmit="event.preventDefault();saveCommercial('quote','${esc(jobId)}','${esc(quoteId)}')">
+      <label>Line items (one per line: description | amount)</label>
+      <textarea name="items" required placeholder="Labour | 75&#10;Materials | 24.50">${esc(q.itemsText || '')}</textarea>
+      <label>Notes / scope and exclusions</label>
+      <textarea name="notes">${esc(q.notes || j.description || '')}</textarea>
+      <label>Valid until</label>
+      <input name="validUntil" type="date" value="${esc(q.validUntil || '')}">
+      <label>Quotation status</label>
+      <select name="status">
+        ${['Draft', 'Sent', 'Accepted', 'Declined', 'Expired']
+          .map((x) => `<option ${(q.status || 'Draft') === x ? 'selected' : ''}>${x}</option>`)
+          .join('')}
+      </select>
+      <button type="submit" class="w">Save quotation and create PDF</button>
+    </form>
+    <p class="small">The quotation will be saved to this job and remain available to view or share as a PDF.</p>
+  `);
+}
+
+async function invoiceForm(jobId, invoiceId = '') {
+  const j = await get('jobs', jobId);
+  const q = invoiceId ? await get('invoices', invoiceId) : {};
+  modal(`
+    <h2>${invoiceId ? 'Edit' : 'Create'} invoice</h2>
+    <p class="m">${esc(j.ref)} · ${esc(j.customerName)}</p>
+    <form id="invoiceForm" onsubmit="event.preventDefault();saveCommercial('invoice','${esc(jobId)}','${esc(invoiceId)}')">
+      <label>Line items (one per line: description | amount)</label>
+      <textarea name="items" required placeholder="Labour | 75&#10;Materials | 24.50">${esc(q.itemsText || `${j.description} | ${Number(j.amount) || 0}`)}</textarea>
+      <label>Additional notes</label>
+      <textarea name="notes">${esc(q.notes || '')}</textarea>
+      <label>Invoice date</label>
+      <input name="createdDate" type="date" value="${esc(q.createdDate || today())}" required>
+      <label>Payment due date</label>
+      <input name="due" type="date" value="${esc(q.due || '')}">
+      <label>Payment status</label>
+      <select name="status">
+        ${['Not paid', 'To be paid', 'Paid', 'Part-paid']
+          .map((x) => `<option ${(q.status || 'Not paid') === x ? 'selected' : ''}>${x}</option>`)
+          .join('')}
+      </select>
+      <button type="submit" class="w">Save invoice and create PDF</button>
+    </form>
+    <p class="small">The invoice will be saved to this job and remain available to view or share as a PDF.</p>
+  `);
+}
+
+async function saveCommercial(kind, jobId, recordId = '') {
+  const f = formData(kind === 'quote' ? 'quoteForm' : 'invoiceForm');
+  const items = parseLineItems(f.items);
+  if (!items.length) return toast('Add at least one line item');
+
+  const storeName = kind === 'quote' ? 'quotes' : 'invoices';
+  const old = recordId ? await get(storeName, recordId) : null;
+  const j = await get('jobs', jobId);
+
+  const counterKey = 'commercial';
+  let counter = await get('counters', counterKey);
+  if (!old && !counter) counter = { id: counterKey, value: 0 };
+  if (!old) {
+    counter.value++;
+    await put('counters', counter);
+  }
+
+  const customer = await get('customers', j.customerId);
+  const record = {
+    ...(old || {}),
+    id: old?.id || uid(),
+    jobId,
+    kind,
+    documentNumber:
+      old?.documentNumber ||
+      `DKH-${new Date().getFullYear()}-${String(counter?.value || 1).padStart(4, '0')}`,
+    customerName: j.customerName,
+    customerAddress: j.customerAddress,
+    customerPhone: customer?.phone || '',
+    customerEmail: customer?.email || '',
+    jobRef: j.ref,
+    jobDescription: j.description,
+    itemsText: f.items,
+    items,
+    notes: f.notes || '',
+    total: totalItems(items),
+    createdDate: f.createdDate || today(),
+    due: f.due || '',
+    validUntil: f.validUntil || '',
+    status: f.status || 'Draft',
+    created: old?.created || Date.now()
+  };
+
+  try {
+    const pdfBlob = await makeCommercialPdf(record);
+    record.pdfData = await fileData(
+      new File([pdfBlob], record.documentNumber + '.pdf', { type: 'application/pdf' })
+    );
+    record.filename = `${record.documentNumber}_${kind === 'quote' ? 'Quotation' : 'Invoice'}.pdf`;
+    await put(storeName, record);
+    closeModal();
+    toast(kind === 'quote' ? 'Quotation saved and PDF created' : 'Invoice saved and PDF created');
+    switchView('job', jobId);
+  } catch (e) {
+    console.error(e);
+    toast('Could not generate PDF: ' + e.message);
+  }
+}
+
+async function makeCommercialPdf(r) {
+  await loadScript('https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js');
+  const pdf = await PDFLib.PDFDocument.create();
+  const font = await pdf.embedFont(PDFLib.StandardFonts.Helvetica);
+  const bold = await pdf.embedFont(PDFLib.StandardFonts.HelveticaBold);
+  const W = 595,
+    H = 842,
+    margin = 48;
+  let page, y;
+  let logo = null;
+
+  if (brand.logo) {
+    try {
+      const bytes = Uint8Array.from(atob(brand.logo.split(',')[1]), (c) => c.charCodeAt(0));
+      logo = brand.logo.startsWith('data:image/png')
+        ? await pdf.embedPng(bytes)
+        : await pdf.embedJpg(bytes);
+    } catch (e) {
+      logo = null;
+    }
+  }
+
+  function hexRgb(h) {
+    const v = String(h).replace('#', '');
+    return [
+      parseInt(v.slice(0, 2), 16) / 255,
+      parseInt(v.slice(2, 4), 16) / 255,
+      parseInt(v.slice(4, 6), 16) / 255
+    ];
+  }
+
+  function newPage() {
+    page = pdf.addPage([W, H]);
+    page.drawRectangle({
+      x: 0,
+      y: H - 104,
+      width: W,
+      height: 104,
+      color: PDFLib.rgb(...hexRgb(brand.color || '#0f5c5c'))
+    });
+    let x = margin;
+    if (logo) {
+      const dims = logo.scale(Math.min(48 / logo.width, 48 / logo.height));
+      page.drawImage(logo, { x, y: H - 78, width: dims.width, height: dims.height });
+      x += dims.width + 12;
+    }
+    page.drawText(brand.name || 'Handyman Services', {
+      x,
+      y: H - 43,
+      size: 17,
+      font: bold,
+      color: PDFLib.rgb(1, 1, 1)
+    });
+    if (brand.slogan) {
+      page.drawText(brand.slogan.slice(0, 90), {
+        x,
+        y: H - 62,
+        size: 9,
+        font,
+        color: PDFLib.rgb(1, 1, 1)
+      });
+    }
+    if (brand.address) {
+      page.drawText(brand.address.replace(/\n/g, ', ').slice(0, 100), {
+        x: margin,
+        y: H - 91,
+        size: 8,
+        font,
+        color: PDFLib.rgb(1, 1, 1)
+      });
+    }
+    page.drawText(r.kind === 'quote' ? 'QUOTATION' : 'INVOICE', {
+      x: W - 185,
+      y: H - 45,
+      size: 17,
+      font: bold,
+      color: PDFLib.rgb(1, 1, 1)
+    });
+    page.drawText(r.documentNumber || '', {
+      x: W - 185,
+      y: H - 64,
+      size: 10,
+      font,
+      color: PDFLib.rgb(1, 1, 1)
+    });
+    y = H - 135;
+  }
+
+  function textLine(t, size = 10, isBold = false) {
+    if (y < 95) newPage();
+    page.drawText(String(t || '').slice(0, 110), {
+      x: margin,
+      y,
+      size,
+      font: isBold ? bold : font,
+      color: PDFLib.rgb(0.08, 0.14, 0.18)
+    });
+    y -= size + 7;
+  }
+
+  function wrapped(t, max = 94, size = 10, isBold = false) {
+    const words = String(t || '').split(/\s+/);
+    let line = '';
+    for (const word of words) {
+      const test = line ? line + ' ' + word : word;
+      if (font.widthOfTextAtSize(test, size) > max * 4.9 && line) {
+        textLine(line, size, isBold);
+        line = word;
+      } else {
+        line = test;
+      }
+    }
+    if (line) textLine(line, size, isBold);
+  }
+
+  newPage();
+  textLine('BILL TO', 11, true);
+  textLine(r.customerName, 11, true);
+  wrapped(r.customerAddress || '');
+  if (r.customerPhone || r.customerEmail) {
+    textLine([r.customerPhone, r.customerEmail].filter(Boolean).join('  |  '), 9);
+  }
+  y -= 8;
+  textLine('JOB REFERENCE', 9, true);
+  textLine(
+    r.jobRef +
+      '  |  ' +
+      (r.kind === 'quote' ? 'Quotation date: ' : 'Invoice date: ') +
+      dateFmt(r.createdDate),
+    10
+  );
+  if (r.kind === 'quote' && r.validUntil) textLine('Valid until: ' + dateFmt(r.validUntil), 10);
+  if (r.kind === 'invoice' && r.due) textLine('Payment due: ' + dateFmt(r.due), 10);
+  y -= 12;
+  textLine('DESCRIPTION', 9, true);
+  for (const item of r.items || []) {
+    wrapped(item.description, 70, 10);
+    textLine(GBP(item.amount), 10, true);
+  }
+  y -= 8;
+  page.drawLine({
+    start: { x: margin, y },
+    end: { x: W - margin, y },
+    thickness: 1,
+    color: PDFLib.rgb(0.7, 0.75, 0.78)
+  });
+  y -= 22;
+  textLine('TOTAL: ' + GBP(r.total), 14, true);
+
+  if (r.notes) {
+    y -= 8;
+    textLine('NOTES', 9, true);
+    wrapped(r.notes, 92, 9);
+  }
+  if (r.kind === 'invoice') {
+    y -= 8;
+    textLine('Payment status: ' + r.status, 10, true);
+    if (brand.bankDetails) wrapped(brand.bankDetails, 92, 9);
+  }
+  if (brand.phone) textLine('Phone: ' + brand.phone, 9);
+  if (brand.email) textLine('Email: ' + brand.email, 9);
+  if (brand.website) textLine('Website: ' + brand.website, 9);
+
+  const pages = pdf.getPages();
+  for (let i = 0; i < pages.length; i++) {
+    const pg = pages[i];
+    pg.drawLine({
+      start: { x: margin, y: 65 },
+      end: { x: W - margin, y: 65 },
+      thickness: 0.7,
+      color: PDFLib.rgb(0.7, 0.75, 0.78)
+    });
+    if (brand.footer) {
+      pg.drawText(brand.footer.slice(0, 110), {
+        x: margin,
+        y: 49,
+        size: 8,
+        font,
+        color: PDFLib.rgb(0.3, 0.36, 0.4)
+      });
+    }
+    pg.drawText('Page ' + (i + 1), {
+      x: W - margin - 35,
+      y: 30,
+      size: 8,
+      font,
+      color: PDFLib.rgb(0.3, 0.36, 0.4)
+    });
+  }
+  return new Blob([await pdf.save()], { type: 'application/pdf' });
+}
+
+async function openCommercialPdf(kind, id) {
+  const win = window.open('about:blank', '_blank');
+  try {
+    const r = await get(kind === 'quote' ? 'quotes' : 'invoices', id);
+    if (!r) throw new Error('Document not found');
+    const blob = r.pdfData
+      ? await fetch(r.pdfData).then((x) => x.blob())
+      : await makeCommercialPdf(r);
+    presentPdf(blob, r.filename || r.documentNumber + '.pdf', win);
+  } catch (e) {
+    if (win) win.close();
+    toast('Could not open PDF: ' + e.message);
+  }
+}
+
+async function shareCommercialPdf(kind, id) {
+  try {
+    const r = await get(kind === 'quote' ? 'quotes' : 'invoices', id);
+    if (!r) throw new Error('Document not found');
+    const blob = r.pdfData
+      ? await fetch(r.pdfData).then((x) => x.blob())
+      : await makeCommercialPdf(r);
+    await shareOrDownloadFile(
+      blob,
+      r.filename || r.documentNumber + '.pdf',
+      `${kind === 'quote' ? 'Quotation' : 'Invoice'} ${r.documentNumber}`
+    );
+  } catch (e) {
+    toast('Could not share PDF: ' + e.message);
+  }
+}
+
+// ============================================================================
+// BOOTSTRAP & CROSS-PAGE URL PARAMETER HANDLING
+// ============================================================================
+(async () => {
+  try {
+    const { params } = await initCore('archive');
+
+    if (params.view === 'job' && params.id) {
+      archiveState.view = 'job';
+      archiveState.id = params.id;
+    } else if (params.view === 'customer' && params.id) {
+      archiveState.view = 'customer';
+      archiveState.id = params.id;
+    } else if (params.tab === 'customers') {
+      archiveState.view = 'customers';
+    } else {
+      archiveState.view = 'jobs';
+      if (params.filter) archiveState.filter = params.filter;
+    }
+
+    await renderArchive();
+
+    // Handle cross-page creation triggers from index.html
+    if (params.action === 'new-customer') {
+      clearQueryParams();
+      await customerForm();
+    } else if (params.action === 'new-job') {
+      clearQueryParams();
+      await jobForm(params.customerId || '');
+    }
+  } catch (e) {
+    console.error('Archive boot error:', e);
+  }
+})();
+</script>
+</body>
+</html>
