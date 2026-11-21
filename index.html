@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#0f5c5c">
+<title>Handyman Manager · Dashboard</title>
+<style>
+:root{--ink:#14232f;--bg:#e9edef;--card:#fff;--ac:#0f5c5c;--tape:#f2c230;--mut:#5b6b76;--bad:#b3261e;--ok:#1b7a43;--ln:#cfd7dc}
+*{box-sizing:border-box}
+body{margin:0;font:16px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;background:var(--bg);color:var(--ink);padding-bottom:calc(76px + env(safe-area-inset-bottom))}
+header{background:var(--ac);color:white;padding:calc(12px + env(safe-area-inset-top)) 16px 12px;border-bottom:5px solid var(--tape);position:sticky;top:0;z-index:5}
+header b{font-size:18px}
+header small{display:block;opacity:.85}
+main{max-width:760px;margin:auto;padding:14px}
+.c{background:white;border:1px solid var(--ln);border-radius:10px;padding:14px;margin-bottom:12px}
+h2,h3{margin:0 0 10px}
+.g{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.n{font-size:26px;font-weight:700;color:var(--ink)}
+.m{color:var(--mut);font-size:14px}
+button{font:inherit;min-height:46px;padding:8px 14px;border:0;border-radius:8px;background:var(--ac);color:white;font-weight:650;margin:3px 3px 3px 0;cursor:pointer}
+button.secondary{background:white;color:var(--ac);border:2px solid var(--ac)}
+button.w{width:100%}
+input,select,textarea{font:inherit;width:100%;min-height:45px;padding:9px;border:1px solid #9aa8b0;border-radius:8px;margin:3px 0 10px;background:white;color:var(--ink)}
+label{font-weight:650;font-size:14px;display:block}
+.row{display:flex;justify-content:space-between;gap:10px;padding:9px 0;border-bottom:1px solid var(--ln);align-items:center;cursor:pointer}
+.row:last-child{border:0}
+nav{position:fixed;bottom:0;left:0;right:0;display:flex;background:white;border-top:1px solid var(--ln);padding-bottom:env(safe-area-inset-bottom);z-index:6}
+nav button{flex:1;background:none;color:var(--mut);border-radius:0;margin:0;min-height:58px;font-size:12px;padding:4px}
+nav button.on{color:var(--ac);box-shadow:inset 0 3px var(--tape)}
+.tag{background:var(--tape);color:#111;border-radius:6px;padding:2px 7px;font-size:12px;font-weight:700;white-space:nowrap}
+.small{font-size:12px;color:var(--mut)}
+.stat-card{cursor:pointer;transition:transform .1s ease}
+.stat-card:active{transform:scale(.98)}
+#toast{position:fixed;left:50%;transform:translateX(-50%);bottom:88px;background:#14232f;color:white;padding:10px 15px;border-radius:8px;display:none;z-index:10;max-width:90%;text-align:center}
+dialog{width:min(650px,96%);max-height:92vh;border:0;border-radius:14px;padding:16px;overflow:auto}
+dialog::backdrop{background:#0008}
+</style>
+</head>
+<body>
+<main id="view"></main>
+
+<!-- Load shared platform core -->
+<script src="core.js"></script>
+<script>
+"use strict";
+
+/**
+ * Renders the main dashboard interface using shared IndexedDB data from core.js
+ * and cross-page navigation links to archive.html, legal-qa.html, and peripherals.html.
+ */
+async function renderDashboard() {
+  const [customers, jobs, qaReports, docs, quotes, invoices] = await Promise.all([
+    all('customers'),
+    all('jobs'),
+    all('qaReports'),
+    all('docs'),
+    all('quotes'),
+    all('invoices')
+  ]);
+
+  const activeJobs = jobs.filter((j) => !['Completed', 'Cancelled'].includes(j.status));
+  const unpaidTotal = jobs
+    .filter((j) => ['Not paid', 'To be paid', 'Part-paid'].includes(j.paymentStatus))
+    .reduce((sum, j) => sum + (Number(j.amount) || 0), 0);
+
+  const recentJobs = [...jobs]
+    .sort((a, b) => (b.created || 0) - (a.created || 0))
+    .slice(0, 6);
+
+  const recentReports = [...qaReports]
+    .sort((a, b) => (b.created || 0) - (a.created || 0))
+    .slice(0, 3);
+
+  $('#view').innerHTML = `
+    <div class="c">
+      <h2>Welcome back</h2>
+      <p class="m">Your business overview, customer jobs, quality records, and legal paperwork in one connected workspace.</p>
+      <button class="w" onclick="navigateTo('archive.html', { action: 'new-customer' })">+ Add customer</button>
+      <button class="secondary w" onclick="navigateTo('archive.html', { action: 'new-job' })">+ Create job</button>
+    </div>
+
+    <div class="g">
+      <div class="c stat-card" onclick="navigateTo('archive.html', { tab: 'customers' })">
+        <div class="n">${customers.length}</div>
+        <div class="m">Customers</div>
+      </div>
+      <div class="c stat-card" onclick="navigateTo('archive.html', { tab: 'jobs' })">
+        <div class="n">${jobs.length}</div>
+        <div class="m">Jobs recorded</div>
+      </div>
+      <div class="c stat-card" onclick="navigateTo('archive.html', { tab: 'jobs', filter: 'active' })">
+        <div class="n">${activeJobs.length}</div>
+        <div class="m">Active jobs</div>
+      </div>
+      <div class="c stat-card" onclick="navigateTo('legal-qa.html', { tab: 'qa' })">
+        <div class="n">${qaReports.length}</div>
+        <div class="m">QA reports</div>
+      </div>
+    </div>
+
+    <div class="c">
+      <div class="row" style="cursor:default;padding-top:0">
+        <span><b>Outstanding job balance</b><div class="m">${quotes.length} quotations · ${invoices.length} invoices · ${docs.length} legal docs</div></span>
+        <span class="n" style="font-size:20px">${GBP(unpaidTotal)}</span>
+      </div>
+    </div>
+
+    <div class="c">
+      <h3>Recent jobs</h3>
+      ${
+        recentJobs.length
+          ? recentJobs
+              .map(
+                (j) => `
+                <div class="row" onclick="navigateTo('archive.html', { view: 'job', id: '${esc(j.id)}' })">
+                  <span>
+                    <b>${esc(j.ref)}</b>
+                    <div class="m">${esc(j.customerName)} · ${esc(j.task || j.description)}</div>
+                  </span>
+                  <span class="tag">${esc(j.status)}</span>
+                </div>`
+              )
+              .join('')
+          : '<p class="m">No jobs yet. Create your first customer or job above when ready.</p>'
+      }
+      ${
+        jobs.length > 0
+          ? `<button class="secondary w" style="margin-top:10px" onclick="navigateTo('archive.html', { tab: 'jobs' })">View all jobs &amp; customers</button>`
+          : ''
+      }
+    </div>
+
+    <div class="c">
+      <h3>Quick workspace links</h3>
+      <button class="secondary w" onclick="navigateTo('legal-qa.html', { tab: 'qa' })">Open QA Portal (${qaReports.length})</button>
+      <button class="secondary w" onclick="navigateTo('legal-qa.html', { tab: 'legal' })">Open Legal Templates &amp; PDFs (${docs.length})</button>
+      <button class="secondary w" onclick="navigateTo('peripherals.html')">Branding, Business Details &amp; Backup</button>
+    </div>
+
+    ${
+      recentReports.length
+        ? `<div class="c">
+            <h3>Recent QA reports</h3>
+            ${recentReports
+              .map(
+                (r) => `
+                <div class="row" onclick="navigateTo('legal-qa.html', { tab: 'qa', reportId: '${esc(r.id)}' })">
+                  <span>
+                    <b>${esc(r.taskType)}</b>
+                    <div class="m">${esc(r.jobRef)} · ${dateFmt(r.workDate)}</div>
+                  </span>
+                  <span class="tag">Open QA</span>
+                </div>`
+              )
+              .join('')}
+          </div>`
+        : ''
+    }
+
+    <div class="c">
+      <p class="small">All pages in this platform share local browser storage on this device. Remember to download regular backups from <b>Branding &amp; Backup</b>.</p>
+    </div>
+  `;
+}
+
+// Bootstrap Dashboard
+(async () => {
+  try {
+    await initCore('home');
+    await renderDashboard();
+  } catch (e) {
+    console.error('Dashboard boot error:', e);
+  }
+})();
+</script>
+</body>
+</html>
