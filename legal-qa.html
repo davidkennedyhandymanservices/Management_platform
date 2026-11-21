@@ -1147,28 +1147,47 @@ async function openManualLegalEditor() {
     <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
       <div style="flex:1">
         <label>Page</label>
-        <select id="legalPage" onchange="renderLegalPage()">
+        <select id="legalPage" onchange="selectedPlacementIdx=-1;renderLegalPage()">
           ${Array.from({ length: doc.numPages }, (_, i) => `<option value="${i + 1}">Page ${i + 1} of ${doc.numPages}</option>`).join('')}
         </select>
       </div>
       <div style="width:110px">
         <label>Text size</label>
-        <select id="legalFontSize" onchange="legalSession.fontSize=Number(this.value)">
-          <option value="8">Small (8pt)</option>
-          <option value="9.5" selected>Normal (9.5pt)</option>
-          <option value="11">Large (11pt)</option>
+        <select id="legalFontSize" onchange="updateSelectedFontSize(Number(this.value))">
+          <option value="7.5">7.5pt</option>
+          <option value="8.5" selected>8.5pt</option>
+          <option value="9.5">9.5pt</option>
+          <option value="11">11pt</option>
         </select>
+      </div>
+      <div style="width:92px">
+        <label>View</label>
+        <button type="button" class="secondary" style="width:100%;margin:3px 0 10px;padding:4px" id="legalZoomBtn" onclick="toggleLegalZoom()">2x Zoom</button>
       </div>
     </div>
 
-    <div style="position:relative;border:2px solid var(--ac);border-radius:8px;overflow:hidden;background:#fff">
-      <canvas id="legalPreview" style="width:100%;display:block;touch-action:manipulation;cursor:crosshair"></canvas>
+    <div id="legalViewportWrap" style="position:relative;border:1px solid #9aa8b0;border-radius:8px;overflow:auto;max-height:62vh;background:#dce2e6">
+      <canvas id="legalPreview" style="width:100%;display:block;touch-action:none;cursor:crosshair"></canvas>
     </div>
-    <p class="small" id="legalTapHint" style="font-weight:700;color:var(--ac);margin-top:6px">Active tool: Place Text — Tap anywhere on the PDF above to insert.</p>
+
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:6px">
+      <span class="small" id="legalTapHint" style="font-weight:650;color:var(--ac)">Tap PDF to place · Drag any placed item to nudge</span>
+      <button type="button" class="secondary" style="min-height:32px;padding:2px 10px;font-size:12px" onclick="clearCurrentPagePlacements()">Clear page</button>
+    </div>
+
+    <div id="selectedItemControls" class="c" style="display:none;margin-top:8px;background:#f4f8fa;border-color:var(--ac)">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <b style="font-size:13px;color:var(--ac)" id="selectedItemTitle">Selected field</b>
+        <button type="button" class="danger" style="min-height:32px;padding:2px 10px;font-size:12px" onclick="deleteSelectedPlacement()">Delete</button>
+      </div>
+      <input id="selectedItemInput" style="min-height:38px;margin-bottom:6px" oninput="editSelectedPlacementText(this.value)">
+      <label class="small">Box wrap width: <span id="selectedWidthLabel">180</span>px</label>
+      <input id="selectedWidthSlider" type="range" min="45" max="480" value="180" style="min-height:28px;margin:0" oninput="editSelectedPlacementWidth(Number(this.value))">
+    </div>
 
     <div class="c" style="margin-top:10px">
       <h3>1. Quick-fill fields &amp; checkmarks</h3>
-      <label>Choose job / business field to auto-fill</label>
+      <label>Choose job / business field</label>
       <select id="legalPresetSelect" onchange="applyLegalPreset(this.value)">
         <option value="">-- Custom text entry --</option>
         ${legalSession.presets
@@ -1176,15 +1195,13 @@ async function openManualLegalEditor() {
           .join('')}
       </select>
 
-      <label>Field label</label>
-      <input id="legalOverlayText" placeholder="e.g. Contract Ref, Client Name, Start Date">
-
       <label>Text to place on PDF</label>
-      <input id="legalOverlayValue" placeholder="Type or pick a field above, then tap the PDF">
+      <input id="legalOverlayValue" placeholder="Pick a field above or type text, then tap PDF">
+      <input id="legalOverlayText" type="hidden">
 
       <div style="display:flex;gap:6px;flex-wrap:wrap">
-        <button type="button" onclick="armLegalTool('text')">Mode: Place Text</button>
-        <button type="button" class="secondary" onclick="armLegalTool('check')">Mode: Place Tick (✓)</button>
+        <button type="button" onclick="armLegalTool('text')">Place Text</button>
+        <button type="button" class="secondary" onclick="armLegalTool('check')">Place Tick (✓)</button>
       </div>
     </div>
 
@@ -1194,14 +1211,14 @@ async function openManualLegalEditor() {
       <canvas id="providerSignature" class="signature"></canvas>
       <div style="margin-bottom:10px">
         <button class="secondary" type="button" onclick="clearCanvasSig('providerSignature')">Clear</button>
-        <button type="button" onclick="armLegalTool('providerSig')">Tap PDF to place Provider signature</button>
+        <button type="button" onclick="armLegalTool('providerSig')">Place Provider signature on PDF</button>
       </div>
 
       <label>Client (Customer) signature</label>
       <canvas id="clientSignature" class="signature"></canvas>
       <div>
         <button class="secondary" type="button" onclick="clearCanvasSig('clientSignature')">Clear</button>
-        <button type="button" onclick="armLegalTool('clientSig')">Tap PDF to place Client signature</button>
+        <button type="button" onclick="armLegalTool('clientSig')">Place Client signature on PDF</button>
       </div>
     </div>
 
@@ -1214,10 +1231,23 @@ async function openManualLegalEditor() {
     <button type="button" class="w" onclick="saveManualLegalDocument()">Generate &amp; Save Completed Legal PDF</button>
   `);
 
+  selectedPlacementIdx = -1;
+  legalZoomed = false;
   initCanvasSig('providerSignature');
   initCanvasSig('clientSignature');
   renderLegalPlacementList();
   await renderLegalPage();
+}
+
+let selectedPlacementIdx = -1;
+let legalZoomed = false;
+
+function toggleLegalZoom() {
+  legalZoomed = !legalZoomed;
+  const canvas = $('#legalPreview');
+  const btn = $('#legalZoomBtn');
+  if (canvas) canvas.style.width = legalZoomed ? '185%' : '100%';
+  if (btn) btn.textContent = legalZoomed ? 'Fit Page' : '2x Zoom';
 }
 
 function applyLegalPreset(key) {
@@ -1226,6 +1256,8 @@ function applyLegalPreset(key) {
   if (found) {
     $('#legalOverlayText').value = found.label;
     $('#legalOverlayValue').value = found.value;
+    selectedPlacementIdx = -1;
+    updateSelectedControls();
     armLegalTool('text');
   } else {
     $('#legalOverlayText').value = '';
@@ -1237,78 +1269,247 @@ function armLegalTool(tool) {
   legalSession.activeTool = tool;
   const hint = $('#legalTapHint');
   const labels = {
-    text: 'Active tool: Place Text — Tap anywhere on the PDF above to insert.',
-    check: 'Active tool: Place Checkmark (✓) — Tap inside a checkbox on the PDF.',
-    providerSig: 'Active tool: Place Provider Signature — Tap the Provider signature box on the PDF.',
-    clientSig: 'Active tool: Place Client Signature — Tap the Client signature box on the PDF.'
+    text: 'Tap PDF to place text · Drag placed items to align',
+    check: 'Tap inside a checkbox on the PDF to place ✓',
+    providerSig: 'Tap the Provider signature box on the PDF',
+    clientSig: 'Tap the Client signature box on the PDF'
   };
   if (hint) hint.textContent = labels[tool] || labels.text;
-  toast(labels[tool] || 'Tap the PDF to place');
+}
+
+function wrapCanvasLines(ctx, text, maxWidth) {
+  const words = String(text || '').split(/\s+/);
+  const lines = [];
+  let line = '';
+  for (const w of words) {
+    const test = line ? line + ' ' + w : w;
+    if (ctx.measureText(test).width > maxWidth && line) {
+      lines.push(line);
+      line = w;
+    } else {
+      line = test;
+    }
+  }
+  if (line) lines.push(line);
+  return lines.length ? lines : [''];
+}
+
+function updateSelectedControls() {
+  const box = $('#selectedItemControls');
+  if (!box) return;
+  const p = legalSession.placements[selectedPlacementIdx];
+  if (!p) {
+    box.style.display = 'none';
+    return;
+  }
+  box.style.display = 'block';
+  $('#selectedItemTitle').textContent = `${p.label} (Page ${p.page})`;
+  const inp = $('#selectedItemInput');
+  if (p.kind === 'text') {
+    inp.style.display = 'block';
+    inp.value = p.value || '';
+  } else {
+    inp.style.display = 'none';
+  }
+  const w = p.maxWidth || 180;
+  $('#selectedWidthSlider').value = w;
+  $('#selectedWidthLabel').textContent = String(w);
+}
+
+async function editSelectedPlacementText(val) {
+  const p = legalSession.placements[selectedPlacementIdx];
+  if (p && p.kind === 'text') {
+    p.value = val;
+    renderLegalPlacementList();
+    await renderLegalPage();
+  }
+}
+
+async function editSelectedPlacementWidth(w) {
+  const p = legalSession.placements[selectedPlacementIdx];
+  if (p) {
+    p.maxWidth = w;
+    $('#selectedWidthLabel').textContent = String(w);
+    await renderLegalPage();
+  }
+}
+
+async function updateSelectedFontSize(sz) {
+  legalSession.fontSize = sz;
+  const p = legalSession.placements[selectedPlacementIdx];
+  if (p && p.kind === 'text') {
+    p.fontSize = sz;
+    await renderLegalPage();
+  }
+}
+
+async function deleteSelectedPlacement() {
+  if (selectedPlacementIdx >= 0) {
+    legalSession.placements.splice(selectedPlacementIdx, 1);
+    selectedPlacementIdx = -1;
+    updateSelectedControls();
+    renderLegalPlacementList();
+    await renderLegalPage();
+  }
+}
+
+async function clearCurrentPagePlacements() {
+  const n = Number($('#legalPage')?.value || 1);
+  legalSession.placements = legalSession.placements.filter((p) => p.page !== n);
+  selectedPlacementIdx = -1;
+  updateSelectedControls();
+  renderLegalPlacementList();
+  await renderLegalPage();
+  toast(`Cleared Page ${n}`);
 }
 
 async function renderLegalPage() {
   const n = Number($('#legalPage')?.value || 1);
   const page = await legalSession.pdfjs.getPage(n);
-  const viewport = page.getViewport({ scale: 1.5 });
+  const renderScale = 1.6;
+  const viewport = page.getViewport({ scale: renderScale });
   const canvas = $('#legalPreview');
   const ctx = canvas.getContext('2d');
   canvas.width = viewport.width;
   canvas.height = viewport.height;
-  canvas.style.width = '100%';
+  canvas.style.width = legalZoomed ? '185%' : '100%';
   canvas.style.height = 'auto';
 
   await page.render({ canvasContext: ctx, viewport }).promise;
 
-  // Draw live preview of all placements on the current page so the user sees exact alignment!
-  const pagePlacements = legalSession.placements.filter((p) => p.page === n);
-  for (let i = 0; i < pagePlacements.length; i++) {
-    const p = pagePlacements[i];
+  // Store hitboxes for smooth touch-dragging of placed items
+  const hitboxes = [];
+
+  for (let idx = 0; idx < legalSession.placements.length; idx++) {
+    const p = legalSession.placements[idx];
+    if (p.page !== n) continue;
+
     const px = p.x * canvas.width;
     const py = p.y * canvas.height;
+    const isSelected = idx === selectedPlacementIdx;
 
     if (p.kind === 'text' || p.kind === 'check') {
-      const scaledFont = (p.fontSize || 9.5) * 1.5;
-      ctx.font = `bold ${scaledFont}px Arial`;
-      const text = p.kind === 'check' ? '✓' : String(p.value || '');
-      const metrics = ctx.measureText(text);
-      ctx.fillStyle = 'rgba(242, 194, 48, 0.28)';
-      ctx.fillRect(px - 2, py - scaledFont + 2, Math.max(metrics.width + 4, 16), scaledFont + 4);
-      ctx.fillStyle = '#0b2538';
-      ctx.fillText(text, px, py);
+      const fontPt = p.fontSize || 8.5;
+      const scaledFont = fontPt * renderScale;
+      const lineHeight = scaledFont * 1.25;
+      const boxW = (p.maxWidth || 180) * renderScale;
+      ctx.font = `${p.kind === 'check' ? 'bold ' : ''}${scaledFont}px Helvetica, Arial, sans-serif`;
+
+      const lines = p.kind === 'check' ? ['✓'] : wrapCanvasLines(ctx, p.value, boxW);
+      const totalH = lines.length * lineHeight;
+
+      ctx.fillStyle = '#111827';
+      lines.forEach((ln, li) => {
+        ctx.fillText(ln, px, py + li * lineHeight);
+      });
+
+      const hb = { idx, x: px - 6, y: py - scaledFont, w: Math.max(boxW, 44) + 12, h: totalH + 10 };
+      hitboxes.push(hb);
+
+      if (isSelected) {
+        ctx.strokeStyle = '#0f5c5c';
+        ctx.lineWidth = 2.5;
+        ctx.setLineDash([5, 3]);
+        ctx.strokeRect(hb.x, hb.y, hb.w, hb.h);
+        ctx.setLineDash([]);
+      }
     } else if (p.kind === 'signature' && p.data) {
       try {
         const im = await imageFromData(p.data);
-        const w = 170 * 1.5;
+        const w = (p.maxWidth || 145) * renderScale;
         const h = (im.height / im.width) * w;
-        ctx.strokeStyle = '#0f5c5c';
-        ctx.lineWidth = 2;
-        ctx.strokeRect(px, py - h * 0.5, w, h);
         ctx.drawImage(im, px, py - h * 0.5, w, h);
+
+        const hb = { idx, x: px - 4, y: py - h * 0.5 - 4, w: w + 8, h: h + 8 };
+        hitboxes.push(hb);
+
+        if (isSelected) {
+          ctx.strokeStyle = '#0f5c5c';
+          ctx.lineWidth = 2.5;
+          ctx.setLineDash([5, 3]);
+          ctx.strokeRect(hb.x, hb.y, hb.w, hb.h);
+          ctx.setLineDash([]);
+        }
       } catch (e) {}
     }
   }
 
-  canvas.onclick = async (e) => {
+  // Pointer interactions: tap existing item to select/drag, or tap empty area to place active tool
+  let draggingIdx = -1;
+  let dragOffset = [0, 0];
+  let moved = false;
+
+  const getCanvasCoords = (e) => {
     const r = canvas.getBoundingClientRect();
-    const x = (e.clientX - r.left) / r.width;
-    const y = (e.clientY - r.top) / r.height;
+    return [
+      ((e.clientX - r.left) * canvas.width) / r.width,
+      ((e.clientY - r.top) * canvas.height) / r.height
+    ];
+  };
+
+  canvas.onpointerdown = (e) => {
+    const [cx, cy] = getCanvasCoords(e);
+    moved = false;
+    // Check topmost hitbox first
+    for (let i = hitboxes.length - 1; i >= 0; i--) {
+      const hb = hitboxes[i];
+      if (cx >= hb.x && cx <= hb.x + hb.w && cy >= hb.y && cy <= hb.y + hb.h) {
+        draggingIdx = hb.idx;
+        selectedPlacementIdx = hb.idx;
+        const item = legalSession.placements[hb.idx];
+        dragOffset = [cx - item.x * canvas.width, cy - item.y * canvas.height];
+        canvas.setPointerCapture(e.pointerId);
+        updateSelectedControls();
+        renderLegalPage();
+        return;
+      }
+    }
+    draggingIdx = -1;
+  };
+
+  canvas.onpointermove = (e) => {
+    if (draggingIdx < 0) return;
+    moved = true;
+    const [cx, cy] = getCanvasCoords(e);
+    const item = legalSession.placements[draggingIdx];
+    if (item) {
+      item.x = Math.max(0.01, Math.min(0.95, (cx - dragOffset[0]) / canvas.width));
+      item.y = Math.max(0.02, Math.min(0.98, (cy - dragOffset[1]) / canvas.height));
+      renderLegalPage();
+    }
+  };
+
+  canvas.onpointerup = async (e) => {
+    if (draggingIdx >= 0) {
+      draggingIdx = -1;
+      if (moved) renderLegalPlacementList();
+      return;
+    }
+
+    // Tapped empty spot -> place active tool cleanly without auto-advancing
+    const [cx, cy] = getCanvasCoords(e);
+    const x = cx / canvas.width;
+    const y = cy / canvas.height;
     const tool = legalSession.activeTool || 'text';
 
     if (tool === 'check') {
       legalSession.placements.push({
         kind: 'check',
         presetKey: '',
-        label: 'Waiver Checkbox (✓)',
+        label: 'Checkmark (✓)',
         value: '✓',
         page: n,
         x,
         y,
-        fontSize: 12
+        fontSize: 11,
+        maxWidth: 30
       });
+      selectedPlacementIdx = legalSession.placements.length - 1;
+      armLegalTool('text');
     } else if (tool === 'providerSig' || tool === 'clientSig') {
       const sigId = tool === 'providerSig' ? 'providerSignature' : 'clientSignature';
       if (!legalSignatureState?.[sigId]?.drawn) {
-        return toast(`Please draw the ${tool === 'providerSig' ? 'Provider' : 'Client'} signature first`);
+        return toast(`Draw the ${tool === 'providerSig' ? 'Provider' : 'Client'} signature below first`);
       }
       legalSession.placements.push({
         kind: 'signature',
@@ -1317,38 +1518,40 @@ async function renderLegalPage() {
         data: $('#' + sigId).toDataURL('image/png'),
         page: n,
         x,
-        y
+        y,
+        maxWidth: 145
       });
+      selectedPlacementIdx = legalSession.placements.length - 1;
       armLegalTool('text');
     } else {
-      const label = ($('#legalOverlayText').value || '').trim() || 'Text Entry';
-      const value = $('#legalOverlayValue').value;
-      if (!value || !value.trim()) {
-        return toast('Select a quick-fill field or enter text to place');
+      const value = ($('#legalOverlayValue').value || '').trim();
+      if (!value) {
+        selectedPlacementIdx = -1;
+        updateSelectedControls();
+        await renderLegalPage();
+        return toast('Pick a field or type text below before tapping the PDF');
       }
+      const label = ($('#legalOverlayText').value || '').trim() || 'Text Entry';
       legalSession.placements.push({
         kind: 'text',
         presetKey: legalSession.selectedPresetKey || '',
         label,
-        value: value.trim(),
+        value,
         page: n,
         x,
         y,
-        fontSize: legalSession.fontSize || 9.5
+        fontSize: legalSession.fontSize || 8.5,
+        maxWidth: 195
       });
-
-      // Automatically advance preset dropdown to the next logical field for rapid entry!
-      const sel = $('#legalPresetSelect');
-      if (sel && sel.selectedIndex > 0 && sel.selectedIndex < sel.options.length - 1) {
-        sel.selectedIndex += 1;
-        applyLegalPreset(sel.value);
-      } else {
-        legalSession.selectedPresetKey = '';
-        $('#legalOverlayText').value = '';
-        $('#legalOverlayValue').value = '';
-      }
+      selectedPlacementIdx = legalSession.placements.length - 1;
+      // Clear input after placing so accidental double-taps never scatter stray duplicates
+      legalSession.selectedPresetKey = '';
+      $('#legalPresetSelect').value = '';
+      $('#legalOverlayText').value = '';
+      $('#legalOverlayValue').value = '';
     }
 
+    updateSelectedControls();
     renderLegalPlacementList();
     await renderLegalPage();
   };
@@ -1487,7 +1690,8 @@ async function saveManualLegalDocument() {
   }
   try {
     await applyNativeLegalValues();
-    const font = await legalSession.pdf.embedFont(PDFLib.StandardFonts.HelveticaBold);
+    const font = await legalSession.pdf.embedFont(PDFLib.StandardFonts.Helvetica);
+    const boldFont = await legalSession.pdf.embedFont(PDFLib.StandardFonts.HelveticaBold);
     for (const p of legalSession.placements) {
       const page = legalSession.pdf.getPage(p.page - 1);
       const size = page.getSize();
@@ -1496,17 +1700,21 @@ async function saveManualLegalDocument() {
 
       if (p.kind === 'text' || p.kind === 'check') {
         const textToDraw = p.kind === 'check' ? 'X' : String(p.value || '');
+        const fontSize = p.fontSize || 8.5;
+        const maxWidth = Math.min(p.maxWidth || 195, Math.max(45, size.width - x - 14));
         page.drawText(textToDraw, {
           x,
           y,
-          size: p.fontSize || 9.5,
-          font,
-          color: PDFLib.rgb(0.05, 0.12, 0.18),
-          maxWidth: Math.max(60, size.width - x - 18)
+          size: fontSize,
+          lineHeight: fontSize * 1.25,
+          font: p.kind === 'check' ? boldFont : font,
+          color: PDFLib.rgb(0.07, 0.09, 0.14),
+          maxWidth
         });
       } else if (p.kind === 'signature' && p.data) {
         const img = await legalSession.pdf.embedPng(p.data);
-        const dims = img.scale(Math.min(1, 165 / img.width));
+        const targetW = p.maxWidth || 145;
+        const dims = img.scale(Math.min(1, targetW / img.width));
         page.drawImage(img, {
           x,
           y: y - dims.height * 0.5,
@@ -1528,7 +1736,8 @@ async function saveManualLegalDocument() {
           page: p.page,
           x: p.x,
           y: p.y,
-          fontSize: p.fontSize || 9.5
+          fontSize: p.fontSize || 8.5,
+          maxWidth: p.maxWidth || 195
         }));
       legalSession.template.savedLayout = reusableLayout;
       await put('templates', legalSession.template);
