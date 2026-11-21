@@ -990,6 +990,10 @@ async function startLegalDocument(templateId, jobId) {
     const j = await get('jobs', jobId);
     if (!t || !j) throw new Error('Template or job not found');
 
+    const customer = j.customerId ? await get('customers', j.customerId) : null;
+    const quotes = (await all('quotes')).filter((q) => q.jobId === jobId);
+    const latestQuote = quotes.sort((a, b) => (b.created || 0) - (a.created || 0))[0] || null;
+
     await ensurePdfLib();
     const bytes = await fetch(t.data).then((r) => r.arrayBuffer());
     const pdf = await PDFLib.PDFDocument.load(bytes);
@@ -1000,6 +1004,438 @@ async function startLegalDocument(templateId, jobId) {
         .getFields()
         .map((f) => ({ name: f.getName(), type: f.constructor.name }));
     } catch (e) {}
+
+    legalSession = {
+      template: t,
+      job: j,
+      customer,
+      quote: latestQuote,
+      bytes,
+      pdf,
+      fields,
+      placements: [],
+      activeTool: 'text', // 'text' | 'check' | 'providerSig' | 'clientSig'
+      selectedPresetKey: '',
+      fontSize: 9.5
+    };
+
+    if (fields.length) {
+      modal(`
+        <h2>Fill legal PDF</h2>
+        <p class="m">${esc(t.name)} · ${esc(j.ref)}. Detected ${fields.length} existing PDF form fields. Original wording is left untouched.</p>
+        <form id="legalFillForm">
+          ${fields
+            .map(
+              (f, i) => `
+              <label>${esc(f.name)} <span class="small">(${esc(f.type)})</span></label>
+              <input name="field_${i}" data-field="${esc(f.name)}" placeholder="Enter value">`
+            )
+            .join('')}
+          <label>Signatory name (optional record)</label>
+          <input name="signatory" placeholder="Full name">
+          <button type="button" class="secondary w" onclick="continueLegalWithPlacements()">Continue to add signatures or positioned text</button>
+          <button type="button" class="w" onclick="saveNativeLegalDocument()">Fill and save completed PDF</button>
+        </form>
+      `);
+    } else {
+      await openManualLegalEditor();
+    }
+  } catch (e) {
+    console.error(e);
+    toast('Could not open legal PDF: ' + e.message);
+  }
+}
+
+/**
+ * Builds smart pre-filled values from your Business Branding, Customer, Job & Quote
+ * so flat contracts like Handyman_Service_Agreement_and_Work_Order.pdf can be filled in seconds.
+ */
+function buildLegalPresets() {
+  const j = legalSession.job;
+  const c = legalSession.customer || {};
+  const q = legalSession.quote;
+  const items = q?.items?.length
+    ? q.items
+    : [{ description: j.description || j.task || 'General maintenance', amount: Number(j.amount) || 0 }];
+
+  const total = q ? Number(q.total) : Number(j.amount) || 0;
+  const presets = [
+    { key: 'jobRef', label: 'Contract / Job Ref', value: j.ref || '' },
+    { key: 'todayDate', label: 'Date Issued (Today)', value: dateFmt(today()) },
+    { key: 'brandName', label: 'Business / Trading Name', value: brand.name || '' },
+    { key: 'brandAddress', label: 'Business Address', value: (brand.address || '').replace(/\n/g, ', ') },
+    { key: 'brandContact', label: 'Business Phone & Email', value: [brand.phone, brand.email].filter(Boolean).join(' | ') },
+    { key: 'custName', label: 'Client Full Legal Name', value: j.customerName || c.name || '' },
+    { key: 'custAddress', label: 'Client Billing Address', value: (c.address || j.customerAddress || '').replace(/\n/g, ', ') },
+    { key: 'custContact', label: 'Client Phone & Email', value: [c.phone, c.email].filter(Boolean).join(' | ') },
+    { key: 'siteAddress', label: 'Service Site Address', value: (j.customerAddress || c.address || '').replace(/\n/g, ', ') },
+    { key: 'notes', label: 'Exclusions / Notes', value: (q?.notes || j.description || '').replace(/\n/g, ' ') },
+    { key: 'subtotal', label: 'Subtotal (£)', value: GBP(total) },
+    { key: 'vat', label: 'Tax / VAT (£0.00)', value: '£0.00' },
+    { key: 'totalDue', label: 'Total Due (£)', value: GBP(total) },
+    { key: 'depositPct', label: 'Deposit % (e.g. 25%)', value: '25%' },
+    { key: 'lateRate', label: 'Late Interest Rate %', value: '8%' },
+    { key: 'warrantyMonths', label: 'Warranty Months', value: '12' },
+    { key: 'providerName', label: 'Provider Printed Name', value: brand.name || '' },
+    { key: 'providerRole', label: 'Provider Title / Role', value: 'Proprietor / Handyman' },
+    { key: 'signedDateTime', label: 'Date & Time Signed', value: `${dateFmt(today())} ${new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}` },
+    {
+      key: 'clientInitials',
+      label: 'Client Initials',
+      value: (j.customerName || '')
+        .split(/\s+/)
+        .map((w) => w[0] || '')
+        .join('')
+        .toUpperCase()
+    }
+  ];
+
+  // Add itemized rows (up to 5 lines) for work order tables
+  items.slice(0, 5).forEach((item, idx) => {
+    const n = idx + 1;
+    presets.push({ key: `itemDesc_${n}`, label: `Item ${n} Description`, value: item.description || '' });
+    presets.push({ key: `itemQty_${n}`, label: `Item ${n} Qty/Hrs`, value: '1' });
+    presets.push({ key: `itemRate_${n}`, label: `Item ${n} Rate`, value: GBP(item.amount) });
+    presets.push({ key: `itemTotal_${n}`, label: `Item ${n} Line Total`, value: GBP(item.amount) });
+  });
+
+  return presets;
+}
+
+async function openManualLegalEditor() {
+  if (!window.pdfjsLib) {
+    await loadScript('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js');
+  }
+  pdfjsLib.GlobalWorkerOptions.workerSrc =
+    'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+  const doc = await pdfjsLib.getDocument({ data: legalSession.bytes.slice(0) }).promise;
+  legalSession.pageCount = doc.numPages;
+  legalSession.pdfjs = doc;
+  legalSession.presets = buildLegalPresets();
+
+  // Auto-load saved layout coordinates if this template was mapped previously!
+  const savedLayout = legalSession.template.savedLayout || [];
+  if (savedLayout.length) {
+    const presetMap = Object.fromEntries(legalSession.presets.map((p) => [p.key, p.value]));
+    legalSession.placements = savedLayout.map((slot) => ({
+      kind: slot.kind,
+      presetKey: slot.presetKey || '',
+      label: slot.label,
+      value: slot.presetKey && presetMap[slot.presetKey] !== undefined ? presetMap[slot.presetKey] : slot.defaultValue || '',
+      page: Math.min(slot.page, doc.numPages),
+      x: slot.x,
+      y: slot.y,
+      fontSize: slot.fontSize || 9.5
+    }));
+  } else {
+    legalSession.placements = [];
+  }
+
+  modal(`
+    <h2>Fill &amp; Sign Legal PDF</h2>
+    <p class="m">${esc(legalSession.template.name)} · <b>${esc(legalSession.job.ref)}</b> (${esc(legalSession.job.customerName)})</p>
+    ${
+      savedLayout.length
+        ? `<div class="c" style="background:#eef8f2;border-color:#1b7a43">
+             <b style="color:#1b7a43">Saved template layout loaded!</b>
+             <div class="small">Fields from your previous setup were auto-filled onto the pages below. You can still tap to add/adjust fields or sign below.</div>
+           </div>`
+        : `<p class="small">1. Pick a pre-filled field (or type custom text / tick box). 2. Tap directly on the PDF page below to place it. Your layout is saved automatically for future jobs!</p>`
+    }
+
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+      <div style="flex:1">
+        <label>Page</label>
+        <select id="legalPage" onchange="renderLegalPage()">
+          ${Array.from({ length: doc.numPages }, (_, i) => `<option value="${i + 1}">Page ${i + 1} of ${doc.numPages}</option>`).join('')}
+        </select>
+      </div>
+      <div style="width:110px">
+        <label>Text size</label>
+        <select id="legalFontSize" onchange="legalSession.fontSize=Number(this.value)">
+          <option value="8">Small (8pt)</option>
+          <option value="9.5" selected>Normal (9.5pt)</option>
+          <option value="11">Large (11pt)</option>
+        </select>
+      </div>
+    </div>
+
+    <div style="position:relative;border:2px solid var(--ac);border-radius:8px;overflow:hidden;background:#fff">
+      <canvas id="legalPreview" style="width:100%;display:block;touch-action:manipulation;cursor:crosshair"></canvas>
+    </div>
+    <p class="small" id="legalTapHint" style="font-weight:700;color:var(--ac);margin-top:6px">Active tool: Place Text — Tap anywhere on the PDF above to insert.</p>
+
+    <div class="c" style="margin-top:10px">
+      <h3>1. Quick-fill fields &amp; checkmarks</h3>
+      <label>Choose job / business field to auto-fill</label>
+      <select id="legalPresetSelect" onchange="applyLegalPreset(this.value)">
+        <option value="">-- Custom text entry --</option>
+        ${legalSession.presets
+          .map((p) => `<option value="${esc(p.key)}">${esc(p.label)}: ${esc(p.value.slice(0, 38))}</option>`)
+          .join('')}
+      </select>
+
+      <label>Field label</label>
+      <input id="legalOverlayText" placeholder="e.g. Contract Ref, Client Name, Start Date">
+
+      <label>Text to place on PDF</label>
+      <input id="legalOverlayValue" placeholder="Type or pick a field above, then tap the PDF">
+
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <button type="button" onclick="armLegalTool('text')">Mode: Place Text</button>
+        <button type="button" class="secondary" onclick="armLegalTool('check')">Mode: Place Tick (✓)</button>
+      </div>
+    </div>
+
+    <div class="c">
+      <h3>2. Dual Signatures (Provider &amp; Client)</h3>
+      <label>Service Provider signature</label>
+      <canvas id="providerSignature" class="signature"></canvas>
+      <div style="margin-bottom:10px">
+        <button class="secondary" type="button" onclick="clearCanvasSig('providerSignature')">Clear</button>
+        <button type="button" onclick="armLegalTool('providerSig')">Tap PDF to place Provider signature</button>
+      </div>
+
+      <label>Client (Customer) signature</label>
+      <canvas id="clientSignature" class="signature"></canvas>
+      <div>
+        <button class="secondary" type="button" onclick="clearCanvasSig('clientSignature')">Clear</button>
+        <button type="button" onclick="armLegalTool('clientSig')">Tap PDF to place Client signature</button>
+      </div>
+    </div>
+
+    <div class="c">
+      <h3>Placed items on this contract (<span id="placementCount">0</span>)</h3>
+      <div id="legalPlacementList" class="small"></div>
+    </div>
+
+    <label><input type="checkbox" id="saveTemplateLayoutCheck" checked> Remember field positions for future jobs using this template</label>
+    <button type="button" class="w" onclick="saveManualLegalDocument()">Generate &amp; Save Completed Legal PDF</button>
+  `);
+
+  initCanvasSig('providerSignature');
+  initCanvasSig('clientSignature');
+  renderLegalPlacementList();
+  await renderLegalPage();
+}
+
+function applyLegalPreset(key) {
+  legalSession.selectedPresetKey = key;
+  const found = legalSession.presets.find((p) => p.key === key);
+  if (found) {
+    $('#legalOverlayText').value = found.label;
+    $('#legalOverlayValue').value = found.value;
+    armLegalTool('text');
+  } else {
+    $('#legalOverlayText').value = '';
+    $('#legalOverlayValue').value = '';
+  }
+}
+
+function armLegalTool(tool) {
+  legalSession.activeTool = tool;
+  const hint = $('#legalTapHint');
+  const labels = {
+    text: 'Active tool: Place Text — Tap anywhere on the PDF above to insert.',
+    check: 'Active tool: Place Checkmark (✓) — Tap inside a checkbox on the PDF.',
+    providerSig: 'Active tool: Place Provider Signature — Tap the Provider signature box on the PDF.',
+    clientSig: 'Active tool: Place Client Signature — Tap the Client signature box on the PDF.'
+  };
+  if (hint) hint.textContent = labels[tool] || labels.text;
+  toast(labels[tool] || 'Tap the PDF to place');
+}
+
+async function renderLegalPage() {
+  const n = Number($('#legalPage')?.value || 1);
+  const page = await legalSession.pdfjs.getPage(n);
+  const viewport = page.getViewport({ scale: 1.5 });
+  const canvas = $('#legalPreview');
+  const ctx = canvas.getContext('2d');
+  canvas.width = viewport.width;
+  canvas.height = viewport.height;
+  canvas.style.width = '100%';
+  canvas.style.height = 'auto';
+
+  await page.render({ canvasContext: ctx, viewport }).promise;
+
+  // Draw live preview of all placements on the current page so the user sees exact alignment!
+  const pagePlacements = legalSession.placements.filter((p) => p.page === n);
+  for (let i = 0; i < pagePlacements.length; i++) {
+    const p = pagePlacements[i];
+    const px = p.x * canvas.width;
+    const py = p.y * canvas.height;
+
+    if (p.kind === 'text' || p.kind === 'check') {
+      const scaledFont = (p.fontSize || 9.5) * 1.5;
+      ctx.font = `bold ${scaledFont}px Arial`;
+      const text = p.kind === 'check' ? '✓' : String(p.value || '');
+      const metrics = ctx.measureText(text);
+      ctx.fillStyle = 'rgba(242, 194, 48, 0.28)';
+      ctx.fillRect(px - 2, py - scaledFont + 2, Math.max(metrics.width + 4, 16), scaledFont + 4);
+      ctx.fillStyle = '#0b2538';
+      ctx.fillText(text, px, py);
+    } else if (p.kind === 'signature' && p.data) {
+      try {
+        const im = await imageFromData(p.data);
+        const w = 170 * 1.5;
+        const h = (im.height / im.width) * w;
+        ctx.strokeStyle = '#0f5c5c';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(px, py - h * 0.5, w, h);
+        ctx.drawImage(im, px, py - h * 0.5, w, h);
+      } catch (e) {}
+    }
+  }
+
+  canvas.onclick = async (e) => {
+    const r = canvas.getBoundingClientRect();
+    const x = (e.clientX - r.left) / r.width;
+    const y = (e.clientY - r.top) / r.height;
+    const tool = legalSession.activeTool || 'text';
+
+    if (tool === 'check') {
+      legalSession.placements.push({
+        kind: 'check',
+        presetKey: '',
+        label: 'Waiver Checkbox (✓)',
+        value: '✓',
+        page: n,
+        x,
+        y,
+        fontSize: 12
+      });
+    } else if (tool === 'providerSig' || tool === 'clientSig') {
+      const sigId = tool === 'providerSig' ? 'providerSignature' : 'clientSignature';
+      if (!legalSignatureState?.[sigId]?.drawn) {
+        return toast(`Please draw the ${tool === 'providerSig' ? 'Provider' : 'Client'} signature first`);
+      }
+      legalSession.placements.push({
+        kind: 'signature',
+        presetKey: '',
+        label: tool === 'providerSig' ? 'Provider Signature' : 'Client Signature',
+        data: $('#' + sigId).toDataURL('image/png'),
+        page: n,
+        x,
+        y
+      });
+      armLegalTool('text');
+    } else {
+      const label = ($('#legalOverlayText').value || '').trim() || 'Text Entry';
+      const value = $('#legalOverlayValue').value;
+      if (!value || !value.trim()) {
+        return toast('Select a quick-fill field or enter text to place');
+      }
+      legalSession.placements.push({
+        kind: 'text',
+        presetKey: legalSession.selectedPresetKey || '',
+        label,
+        value: value.trim(),
+        page: n,
+        x,
+        y,
+        fontSize: legalSession.fontSize || 9.5
+      });
+
+      // Automatically advance preset dropdown to the next logical field for rapid entry!
+      const sel = $('#legalPresetSelect');
+      if (sel && sel.selectedIndex > 0 && sel.selectedIndex < sel.options.length - 1) {
+        sel.selectedIndex += 1;
+        applyLegalPreset(sel.value);
+      } else {
+        legalSession.selectedPresetKey = '';
+        $('#legalOverlayText').value = '';
+        $('#legalOverlayValue').value = '';
+      }
+    }
+
+    renderLegalPlacementList();
+    await renderLegalPage();
+  };
+}
+
+function renderLegalPlacementList() {
+  const countEl = $('#placementCount');
+  if (countEl) countEl.textContent = String(legalSession.placements.length);
+
+  const el = $('#legalPlacementList');
+  if (!el) return;
+  el.innerHTML =
+    legalSession.placements
+      .map(
+        (p, i) => `
+        <div class="row" style="padding:6px 0">
+          <div style="flex:1">
+            <b>${i + 1}. ${esc(p.label)}</b> <span class="small">(Page ${p.page})</span>
+            ${
+              p.kind === 'text'
+                ? `<input style="min-height:36px;margin:4px 0 0;padding:4px 8px" value="${esc(p.value)}" onchange="updatePlacementValue(${i}, this.value)">`
+                : `<div class="small">${p.kind === 'check' ? 'Checkmark (✓)' : 'Signature image'}</div>`
+            }
+          </div>
+          <button type="button" class="secondary" style="min-height:34px;padding:2px 8px" onclick="removeLegalPlacement(${i})">Remove</button>
+        </div>`
+      )
+      .join('') || 'No fields placed yet. Pick a field above and tap anywhere on the PDF preview.';
+}
+
+async function updatePlacementValue(index, newValue) {
+  if (legalSession.placements[index]) {
+    legalSession.placements[index].value = newValue;
+    await renderLegalPage();
+  }
+}
+
+async function removeLegalPlacement(i) {
+  legalSession.placements.splice(i, 1);
+  renderLegalPlacementList();
+  await renderLegalPage();
+}
+
+function initCanvasSig(id) {
+  const c = $('#' + id);
+  if (!c) return;
+  const ctx = c.getContext('2d');
+  c.width = 900;
+  c.height = 260;
+  ctx.lineWidth = 5;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  if (!legalSignatureState) legalSignatureState = {};
+  legalSignatureState[id] = { drawn: false };
+
+  let down = false;
+  const pt = (e) => {
+    const r = c.getBoundingClientRect();
+    return [
+      ((e.clientX - r.left) * c.width) / r.width,
+      ((e.clientY - r.top) * c.height) / r.height
+    ];
+  };
+
+  c.onpointerdown = (e) => {
+    down = true;
+    c.setPointerCapture(e.pointerId);
+    ctx.beginPath();
+    ctx.moveTo(...pt(e));
+  };
+  c.onpointermove = (e) => {
+    if (down) {
+      ctx.lineTo(...pt(e));
+      ctx.stroke();
+      legalSignatureState[id].drawn = true;
+    }
+  };
+  c.onpointerup = c.onpointercancel = () => {
+    down = false;
+  };
+}
+
+function clearCanvasSig(id) {
+  const c = $('#' + id);
+  if (c) c.getContext('2d').clearRect(0, 0, c.width, c.height);
+  if (legalSignatureState?.[id]) legalSignatureState[id].drawn = false;
+}
 
     legalSession = {
       template: t,
@@ -1241,37 +1677,57 @@ async function saveNativeLegalDocument() {
 
 async function saveManualLegalDocument() {
   if (!legalSession.placements.length) {
-    return toast('Add at least one text placement or signature');
+    return toast('Place at least one text field, checkmark, or signature on the PDF first');
   }
   try {
     await applyNativeLegalValues();
-    const font = await legalSession.pdf.embedFont(PDFLib.StandardFonts.Helvetica);
+    const font = await legalSession.pdf.embedFont(PDFLib.StandardFonts.HelveticaBold);
     for (const p of legalSession.placements) {
       const page = legalSession.pdf.getPage(p.page - 1);
       const size = page.getSize();
       const x = p.x * size.width;
       const y = (1 - p.y) * size.height;
 
-      if (p.kind === 'text') {
-        page.drawText(String(p.value), {
+      if (p.kind === 'text' || p.kind === 'check') {
+        const textToDraw = p.kind === 'check' ? 'X' : String(p.value || '');
+        page.drawText(textToDraw, {
           x,
           y,
-          size: 10,
+          size: p.fontSize || 9.5,
           font,
-          color: PDFLib.rgb(0, 0, 0),
-          maxWidth: Math.max(60, size.width - x - 20)
+          color: PDFLib.rgb(0.05, 0.12, 0.18),
+          maxWidth: Math.max(60, size.width - x - 18)
         });
-      } else {
+      } else if (p.kind === 'signature' && p.data) {
         const img = await legalSession.pdf.embedPng(p.data);
-        const dims = img.scale(Math.min(1, 170 / img.width));
+        const dims = img.scale(Math.min(1, 165 / img.width));
         page.drawImage(img, {
           x,
-          y: y - 32,
+          y: y - dims.height * 0.5,
           width: dims.width,
           height: dims.height
         });
       }
     }
+
+    // Save reusable template field coordinates (excluding one-off signatures) so future jobs auto-fill!
+    if ($('#saveTemplateLayoutCheck')?.checked) {
+      const reusableLayout = legalSession.placements
+        .filter((p) => p.kind === 'text' || p.kind === 'check')
+        .map((p) => ({
+          kind: p.kind,
+          presetKey: p.presetKey || '',
+          label: p.label,
+          defaultValue: p.presetKey ? '' : p.value,
+          page: p.page,
+          x: p.x,
+          y: p.y,
+          fontSize: p.fontSize || 9.5
+        }));
+      legalSession.template.savedLayout = reusableLayout;
+      await put('templates', legalSession.template);
+    }
+
     const bytes = await legalSession.pdf.save();
     await storeCompletedLegal(bytes, '', legalSession.placements);
   } catch (e) {
