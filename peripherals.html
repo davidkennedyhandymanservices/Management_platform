@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#0f5c5c">
+<title>Handyman Manager · Branding &amp; Backup</title>
+<style>
+:root{--ink:#14232f;--bg:#e9edef;--card:#fff;--ac:#0f5c5c;--tape:#f2c230;--mut:#5b6b76;--bad:#b3261e;--ok:#1b7a43;--ln:#cfd7dc}
+*{box-sizing:border-box}
+body{margin:0;font:16px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;background:var(--bg);color:var(--ink);padding-bottom:calc(76px + env(safe-area-inset-bottom))}
+header{background:var(--ac);color:white;padding:calc(12px + env(safe-area-inset-top)) 16px 12px;border-bottom:5px solid var(--tape);position:sticky;top:0;z-index:5}
+header b{font-size:18px}
+header small{display:block;opacity:.85}
+main{max-width:760px;margin:auto;padding:14px}
+.c{background:white;border:1px solid var(--ln);border-radius:10px;padding:14px;margin-bottom:12px}
+h2,h3{margin:0 0 10px}
+.m{color:var(--mut);font-size:14px}
+button{font:inherit;min-height:46px;padding:8px 14px;border:0;border-radius:8px;background:var(--ac);color:white;font-weight:650;margin:3px 3px 3px 0;cursor:pointer}
+button.secondary{background:white;color:var(--ac);border:2px solid var(--ac)}
+button.w{width:100%}
+button.danger{background:#9e2525}
+input,select,textarea{font:inherit;width:100%;min-height:45px;padding:9px;border:1px solid #9aa8b0;border-radius:8px;margin:3px 0 10px;background:white;color:var(--ink)}
+textarea{min-height:82px}
+input[type=color]{padding:4px;cursor:pointer}
+label{font-weight:650;font-size:14px;display:block}
+.row{display:flex;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px solid var(--ln);align-items:center}
+.row:last-child{border:0}
+nav{position:fixed;bottom:0;left:0;right:0;display:flex;background:white;border-top:1px solid var(--ln);padding-bottom:env(safe-area-inset-bottom);z-index:6}
+nav button{flex:1;background:none;color:var(--mut);border-radius:0;margin:0;min-height:58px;font-size:12px;padding:4px}
+nav button.on{color:var(--ac);box-shadow:inset 0 3px var(--tape)}
+.logo-preview{display:flex;align-items:center;gap:12px;margin:6px 0 12px;padding:10px;border:1px solid var(--ln);border-radius:8px;background:#f8fafb}
+.logo-preview img{max-height:56px;max-width:140px;object-fit:contain;border-radius:6px}
+.small{font-size:12px;color:var(--mut)}
+#toast{position:fixed;left:50%;transform:translateX(-50%);bottom:88px;background:#14232f;color:white;padding:10px 15px;border-radius:8px;display:none;z-index:10;max-width:90%;text-align:center}
+dialog{width:min(650px,96%);max-height:92vh;border:0;border-radius:14px;padding:16px;overflow:auto}
+dialog::backdrop{background:#0008}
+</style>
+</head>
+<body>
+<main id="view"></main>
+
+<!-- Load shared platform core -->
+<script src="core.js"></script>
+<script>
+"use strict";
+
+let pendingRestoreData = null;
+
+// ============================================================================
+// 1. RENDER BRANDING, SETTINGS & BACKUP VIEW
+// ============================================================================
+async function renderPeripherals() {
+  const counts = await Promise.all(
+    APP_CONFIG.stores.map(async (s) => ({
+      name: s,
+      count: (await all(s)).length
+    }))
+  );
+
+  const countMap = Object.fromEntries(counts.map((c) => [c.name, c.count]));
+
+  $('#view').innerHTML = `
+    <h2>Business settings &amp; branding</h2>
+    <form id="brandForm" class="c" onsubmit="event.preventDefault();saveBrandSettings()">
+      <p class="m">Changes here automatically update the header, accent colour, and all generated Quotations, Invoices, and QA Report PDFs across every page.</p>
+
+      <label>Business name</label>
+      <input name="name" value="${esc(brand.name)}" required>
+
+      <label>Slogan / tagline</label>
+      <input name="slogan" value="${esc(brand.slogan)}" placeholder="e.g. Reliable Property Maintenance &amp; Repairs">
+
+      <label>Business address</label>
+      <textarea name="address" placeholder="Street, Town, Postcode">${esc(brand.address)}</textarea>
+
+      <label>Phone</label>
+      <input name="phone" type="tel" value="${esc(brand.phone)}">
+
+      <label>Email</label>
+      <input name="email" type="email" value="${esc(brand.email)}">
+
+      <label>Website</label>
+      <input name="website" value="${esc(brand.website)}" placeholder="e.g. www.example.co.uk">
+
+      <label>Brand accent colour</label>
+      <input type="color" name="color" value="${esc(brand.color || '#0f5c5c')}">
+
+      <label>PDF footer note</label>
+      <input name="footer" value="${esc(brand.footer)}" placeholder="e.g. Fully insured · Thank you for your business">
+
+      <label>Bank / payment details (shown on Invoices)</label>
+      <textarea name="bankDetails" placeholder="e.g. Account Name · Sort Code: 00-00-00 · Account: 12345678">${esc(brand.bankDetails || '')}</textarea>
+
+      <label>Business logo (PNG or JPEG)</label>
+      ${
+        brand.logo
+          ? `<div class="logo-preview">
+               <img src="${brand.logo}" alt="Current business logo">
+               <div style="flex:1">
+                 <div class="small">Active logo</div>
+                 <button type="button" class="secondary" style="min-height:36px;padding:4px 10px" onclick="removeBrandLogo()">Remove logo</button>
+               </div>
+             </div>`
+          : ''
+      }
+      <input type="file" accept="image/png,image/jpeg" id="brandLogo">
+
+      <button class="w" type="submit">Save business settings</button>
+    </form>
+
+    <div class="c">
+      <h3>Backup and restore</h3>
+      <p class="m">Your records are stored locally in this browser on this device. Back up regularly. Backups contain customer information and are not encrypted, so store them securely.</p>
+
+      <div style="margin:10px 0;padding:10px;background:#f8fafb;border:1px solid var(--ln);border-radius:8px">
+        <div class="row"><span>Customers</span><b>${countMap.customers || 0}</b></div>
+        <div class="row"><span>Jobs</span><b>${countMap.jobs || 0}</b></div>
+        <div class="row"><span>QA reports</span><b>${countMap.qaReports || 0}</b></div>
+        <div class="row"><span>Quotations &amp; Invoices</span><b>${(countMap.quotes || 0) + (countMap.invoices || 0)}</b></div>
+        <div class="row"><span>Legal templates &amp; completed PDFs</span><b>${(countMap.templates || 0) + (countMap.docs || 0)}</b></div>
+      </div>
+
+      <button class="w" type="button" onclick="downloadBackup()">Download backup file (.json)</button>
+      <button class="secondary w" type="button" onclick="shareBackup()">Share backup file</button>
+
+      <label style="margin-top:14px">Restore from backup file (.json)</label>
+      <input id="restoreFileInput" type="file" accept="application/json,.json" onchange="prepareRestoreBackup(this)">
+    </div>
+
+    <div class="c">
+      <h3>Important notes</h3>
+      <p class="m">This tool records job information, commercial documents, legal templates, and QA evidence. It does not provide legal advice, verify trade competence, certify regulated work, or replace required contracts, insurance, or statutory documents.</p>
+    </div>
+  `;
+}
+
+// ============================================================================
+// 2. SAVE & UPDATE BRANDING
+// ============================================================================
+async function saveBrandSettings() {
+  try {
+    const f = formData('brandForm');
+    if (!f.name || !f.name.trim()) {
+      return toast('Please enter your business name');
+    }
+
+    const updatedBrand = {
+      ...brand,
+      ...f,
+      name: f.name.trim()
+    };
+
+    const fileInput = $('#brandLogo');
+    const file = fileInput?.files?.[0];
+    if (file) {
+      if (file.size > 5 * 1024 * 1024) {
+        return toast('Logo image must be smaller than 5 MB');
+      }
+      updatedBrand.logo = await fileData(file);
+    }
+
+    await put('settings', { id: 'brand', ...updatedBrand });
+    await loadBrand();
+    toast('Business settings saved');
+    await renderPeripherals();
+  } catch (e) {
+    console.error(e);
+    toast('Could not save settings: ' + e.message);
+  }
+}
+
+async function removeBrandLogo() {
+  brand.logo = '';
+  await put('settings', { id: 'brand', ...brand });
+  await loadBrand();
+  toast('Logo removed');
+  await renderPeripherals();
+}
+
+// ============================================================================
+// 3. FULL PLATFORM BACKUP & RESTORE (ACROSS ALL 10 STORES)
+// ============================================================================
+async function buildBackupPayload() {
+  const payload = {
+    app: APP_CONFIG.dbName,
+    version: APP_CONFIG.dbVersion,
+    created: new Date().toISOString(),
+    stores: {}
+  };
+
+  for (const storeName of APP_CONFIG.stores) {
+    payload.stores[storeName] = await all(storeName);
+  }
+  return payload;
+}
+
+async function downloadBackup() {
+  try {
+    const payload = await buildBackupPayload();
+    const json = JSON.stringify(payload, null, 2);
+    saveText(json, `Handyman-Manager-Backup-${today()}.json`, 'application/json');
+    toast('Backup downloaded');
+  } catch (e) {
+    console.error(e);
+    toast('Could not create backup: ' + e.message);
+  }
+}
+
+async function shareBackup() {
+  try {
+    const payload = await buildBackupPayload();
+    const json = JSON.stringify(payload, null, 2);
+    const filename = `Handyman-Manager-Backup-${today()}.json`;
+    const blob = new Blob([json], { type: 'application/json' });
+    await shareOrDownloadFile(blob, filename, 'Handyman Manager Backup');
+  } catch (e) {
+    console.error(e);
+    toast('Could not share backup: ' + e.message);
+  }
+}
+
+async function prepareRestoreBackup(input) {
+  const file = input.files?.[0];
+  if (!file) return;
+
+  try {
+    const text = await file.text();
+    const parsed = JSON.parse(text);
+
+    if (parsed.app !== APP_CONFIG.dbName || !parsed.stores || typeof parsed.stores !== 'object') {
+      input.value = '';
+      return toast('This file is not a compatible Handyman Manager backup');
+    }
+
+    pendingRestoreData = parsed;
+    const backupDate = parsed.created
+      ? new Date(parsed.created).toLocaleString('en-GB')
+      : 'Unknown date';
+
+    modal(`
+      <h2>Restore backup?</h2>
+      <p class="m">Backup created: <b>${esc(backupDate)}</b></p>
+      <p class="m">Restoring will merge these records into this browser. Any existing records with matching IDs will be replaced.</p>
+      <button type="button" class="w" onclick="executeRestoreBackup()">Yes, restore records</button>
+    `);
+  } catch (e) {
+    console.error(e);
+    toast('Could not read backup file: ' + e.message);
+  } finally {
+    input.value = '';
+  }
+}
+
+async function executeRestoreBackup() {
+  if (!pendingRestoreData) return;
+  try {
+    for (const storeName of APP_CONFIG.stores) {
+      const items = pendingRestoreData.stores[storeName];
+      if (Array.isArray(items)) {
+        for (const item of items) {
+          if (item && item.id !== undefined) {
+            await put(storeName, item);
+          }
+        }
+      }
+    }
+
+    pendingRestoreData = null;
+    closeModal();
+    await loadBrand();
+    toast('Backup restored successfully');
+    await renderPeripherals();
+  } catch (e) {
+    console.error(e);
+    toast('Could not restore backup: ' + e.message);
+  }
+}
+
+// ============================================================================
+// 4. BOOTSTRAP
+// ============================================================================
+(async () => {
+  try {
+    await initCore('peripherals');
+    await renderPeripherals();
+  } catch (e) {
+    console.error('Peripherals boot error:', e);
+  }
+})();
+</script>
+</body>
+</html>
