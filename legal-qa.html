@@ -270,10 +270,10 @@ async function renderLegalView() {
     ${renderTabs('legal')}
     <div class="c">
       <h2>Legal documents</h2>
-      <p class="m">Prepare a clean copy of a template using job and customer details, review or edit the fields, then save an unsigned customer-review copy or add signatures.</p>
-      <label>Import a blank PDF template</label>
+      <p class="m">Upload a PDF once, select a job, and the platform creates a separate copy with matching customer, job, and business details filled in. Review or edit the copy before saving it as a document; the uploaded PDF stays unchanged.</p>
+      <label>Upload PDF</label>
       <input id="legalTemplateFile" type="file" accept="application/pdf" onchange="importLegalTemplate(this)">
-      <p class="small">Templates and completed documents stay in this browser on this device. Import only PDFs you are entitled to use.</p>
+      <p class="small">The platform fills PDF form fields and recognizable printed labels. Scanned/image-only PDFs or documents without field labels may still need manual placement. Files stay in this browser on this device; import only PDFs you are entitled to use.</p>
     </div>
 
     <div class="c">
@@ -925,7 +925,7 @@ async function importLegalTemplate(input) {
       created: Date.now()
     };
     await put('templates', rec);
-    toast('PDF template added to private library');
+    toast('PDF saved. Select a job to create its digital copy.');
     workspaceTab = 'legal';
     await renderWorkspace();
   } catch (e) {
@@ -1012,7 +1012,11 @@ async function clearStaticPlaceholderText(pdf, sourceBytes) {
 
 function isStaticPlaceholderText(value) {
   const text = String(value || '').trim();
-  return /^(?:\[[^\]]+\]|\{[^}]+\}|<[^>]+>|\([^)]{1,80}\)|_{3,}|\.{3,}|(?:enter|insert|input|type|write|add|please fill|complete)\s+(?:(?:your|the)\s+)?(?:(?:full|legal)\s+)?(?:customer|client|contractor|provider|business|job|date|address|phone|email|amount|signature|name|description|reference|details|information|text)\b(?:\s+(?:(?:full|legal)\s+)?(?:name|address|phone|email|details|description|reference|date|amount|here))?|(?:customer|client|contractor|provider|business|job|date|address|phone|email|amount|signature|name|description|reference)(?:['’]s)?\s+(?:full\s+)?(?:legal\s+)?(?:name|address|phone|email|details|description|reference|date|amount|here)\b.*|\b(?:tbc|tbd|to be completed|click here)\b)$/i.test(text);
+  if (/^(?:\[[^\]]+\]|\{[^}]+\}|<[^>]+>|_{3,}|\.{3,}|(?:enter|insert|input|type|write|add|please fill|complete)\b.*|\b(?:tbc|tbd|to be completed|click here)\b)$/i.test(text)) {
+    return true;
+  }
+  const parenthesized = text.match(/^\(([^()]*)\)$/);
+  return Boolean(parenthesized && matchLegalPdfLabel(parenthesized[1]));
 }
 
 function confirmDeleteTemplate(id) {
@@ -1263,6 +1267,143 @@ function buildNativeLegalPrefills(fields, presets) {
   return { values, count };
 }
 
+function matchLegalPdfLabel(value) {
+  const rawText = String(value || '');
+  const text = rawText.trim();
+  const leadingSpace = rawText.length - rawText.trimStart().length;
+  const rules = [
+    { key: 'jobRef', pattern: /\b(?:job|contract)\s*(?:ref(?:erence)?|no\.?|number)\b/i },
+    { key: 'siteAddress', pattern: /\b(?:job|work|service|site|property)\s+(?:site\s+)?address\b/i },
+    { key: 'siteAddress', pattern: /\baddress\s+of\s+(?:the\s+)?(?:property|premises)\b/i },
+    { key: 'custAddress', pattern: /\b(?:customer|client|billing|invoice)\s+address\b/i },
+    { key: 'brandAddress', pattern: /\b(?:business|company|contractor|provider|supplier)\s+address\b/i },
+    { key: 'custAddress', pattern: /\baddress\b/i },
+    { key: 'custName', pattern: /\b(?:(?:customer|client|purchaser)(?:['’]s)?\s+(?:(?:full|legal)\s+)?name|(?:full\s+)?name\s+of\s+(?:the\s+)?(?:customer|client))\b/i },
+    { key: 'brandName', pattern: /\b(?:business|company|contractor|provider|supplier)(?:['’]s)?\s+(?:trading\s+)?name\b/i },
+    { key: 'custName', pattern: /^\s*(?:customer|client|purchaser)\s*[:.]?\s*$/i },
+    { key: 'brandName', pattern: /^\s*(?:business|company|contractor|provider|supplier)\s*[:.]?\s*$/i },
+    { key: 'custName', pattern: /^\s*(?:full\s+)?name\s*[:.]?\s*$/i },
+    { key: 'custPhone', pattern: /\b(?:customer|client)\s+(?:phone|telephone|mobile)(?:\s+number)?\b/i },
+    { key: 'brandPhone', pattern: /\b(?:business|company|contractor|provider|supplier)\s+(?:phone|telephone|mobile)(?:\s+number)?\b/i },
+    { key: 'custEmail', pattern: /\b(?:customer|client)\s+e-?mail\b/i },
+    { key: 'brandEmail', pattern: /\b(?:business|company|contractor|provider|supplier)\s+e-?mail\b/i },
+    { key: 'custPhone', pattern: /\bphone\s+number\b/i },
+    { key: 'custPhone', pattern: /^\s*(?:phone|telephone|mobile)\s*[:.]?\s*$/i },
+    { key: 'custEmail', pattern: /\be-?mail\s+address\b/i },
+    { key: 'custEmail', pattern: /^\s*e-?mail\s*[:.]?\s*$/i },
+    { key: 'todayDate', pattern: /\b(?:(?:agreement|contract|work|job|issue|issued|completion|signed)\s+)?date\b(?!\s+of\s+birth)/i },
+    { key: 'workDesc', pattern: /\b(?:scope\s+of\s+works?|description(?:\s+of\s+works?)?|work\s+description|job\s+description|works?\s+to\s+be\s+carried\s+out)\b/i },
+    { key: 'subtotal', pattern: /\bsubtotal\b/i },
+    { key: 'vat', pattern: /\b(?:vat|sales\s+tax)\b/i },
+    { key: 'totalDue', pattern: /\b(?:total\s+due|amount\s+due|contract\s+price|total\s+price|agreed\s+price|total|amount)\b/i },
+    { key: 'notes', pattern: /\b(?:additional\s+)?(?:notes|exclusions|special\s+conditions)\b/i }
+  ];
+
+  for (const rule of rules) {
+    const match = rule.pattern.exec(text);
+    if (match) {
+      return {
+        key: rule.key,
+        index: match.index + leadingSpace,
+        end: match.index + leadingSpace + match[0].length
+      };
+    }
+  }
+  return null;
+}
+
+async function createAutomaticLegalPlacements(pdfDocument) {
+  const presetsByKey = Object.fromEntries(legalSession.presets.map((preset) => [preset.key, preset]));
+  const placements = [];
+  const placeholderPattern = /(?:_{2,}|\.{2,}|\[[^\]]+\]|\{[^}]+\}|<[^>]+>)/;
+
+  for (let pageNumber = 1; pageNumber <= pdfDocument.numPages; pageNumber++) {
+    const textPage = await pdfDocument.getPage(pageNumber);
+    const pageSize = legalSession.pdf.getPage(pageNumber - 1).getSize();
+    const textContent = await textPage.getTextContent();
+    const items = textContent.items
+      .filter((item) => typeof item.str === 'string' && item.str.trim())
+      .map((item) => ({
+        text: item.str,
+        x: item.transform[4],
+        y: item.transform[5],
+        width: item.width || 0
+      }));
+
+    for (const item of items) {
+      const label = matchLegalPdfLabel(item.text);
+      if (!label) continue;
+      const preset = presetsByKey[label.key];
+      if (!preset?.value) continue;
+
+      const inlinePlaceholder = placeholderPattern.exec(item.text);
+      const hasOnlyLabelAndPunctuation = /^[\s:._-]*$/.test(item.text.slice(label.end));
+      let x;
+      let y = item.y;
+      let availableWidth;
+
+      if (isStaticPlaceholderText(item.text)) {
+        x = item.x;
+        availableWidth = item.width;
+      } else if (inlinePlaceholder && inlinePlaceholder.index >= label.end) {
+        x = item.x + item.width * (inlinePlaceholder.index / Math.max(1, item.text.length));
+        availableWidth = item.width * ((item.text.length - inlinePlaceholder.index) / Math.max(1, item.text.length));
+      } else {
+        const labelEndX = item.x + item.width * (label.end / Math.max(1, item.text.length));
+        const nearbyPlaceholder = items
+          .filter((candidate) =>
+            candidate !== item &&
+            isStaticPlaceholderText(candidate.text) &&
+            Math.abs(candidate.y - item.y) <= 14 &&
+            candidate.x >= labelEndX - 2
+          )
+          .sort((a, b) => Math.abs(a.y - item.y) - Math.abs(b.y - item.y) || a.x - b.x)[0];
+
+        if (nearbyPlaceholder) {
+          x = nearbyPlaceholder.x;
+          y = nearbyPlaceholder.y;
+          availableWidth = nearbyPlaceholder.width;
+        } else if (hasOnlyLabelAndPunctuation) {
+          if (item.text.slice(label.end).includes(':')) {
+            x = labelEndX + 5;
+            const nextTextX = items
+              .filter((candidate) =>
+                candidate !== item &&
+                Math.abs(candidate.y - item.y) <= 5 &&
+                candidate.x > x
+              )
+              .reduce((nearest, candidate) => Math.min(nearest, candidate.x), pageSize.width);
+            availableWidth = nextTextX - x - 5;
+          } else {
+            x = item.x;
+            y = item.y - 14;
+            availableWidth = pageSize.width - x - 14;
+          }
+        } else {
+          continue;
+        }
+      }
+
+      if (availableWidth < 45) continue;
+      x = Math.max(0, Math.min(x, pageSize.width - 30));
+      const maxWidth = Math.min(240, pageSize.width - x - 14, Math.max(75, availableWidth + 18));
+      placements.push({
+        kind: 'text',
+        presetKey: label.key,
+        label: preset.label,
+        value: preset.value,
+        page: pageNumber,
+        x: x / pageSize.width,
+        y: Math.max(0.02, Math.min(0.98, 1 - y / pageSize.height)),
+        fontSize: 8.5,
+        maxWidth
+      });
+    }
+  }
+
+  return placements;
+}
+
 async function openManualLegalEditor() {
   if (!window.pdfjsLib) {
     await loadScript('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js');
@@ -1289,8 +1430,12 @@ async function openManualLegalEditor() {
       page: Math.min(slot.page, doc.numPages),
       x: slot.x,
       y: slot.y,
-      fontSize: slot.fontSize || 9.5
+      fontSize: slot.fontSize || 9.5,
+      maxWidth: slot.maxWidth || 195
     }));
+  } else if (!legalSession.fields.length) {
+    legalSession.placements = await createAutomaticLegalPlacements(doc);
+    legalSession.autoFillCount = legalSession.placements.length;
   } else {
     legalSession.placements = [];
   }
@@ -1301,10 +1446,15 @@ async function openManualLegalEditor() {
     ${
       savedLayout.length
         ? `<div class="c" style="background:#eef8f2;border-color:#1b7a43">
-             <b style="color:#1b7a43">Saved template layout loaded!</b>
-             <div class="small">Fields from your previous setup were auto-filled onto the pages below. You can still tap to add/adjust fields or sign below.</div>
+             <b style="color:#1b7a43">Saved template layout loaded</b>
+             <div class="small">Job details have been placed using this template's saved field positions. Review or edit them before saving.</div>
            </div>`
-        : `<p class="small">1. Pick a pre-filled field (or type custom text / tick box). 2. Tap directly on the PDF page below to place it. Your layout is saved automatically for future jobs!</p>`
+        : legalSession.autoFillCount
+          ? `<div class="c" style="background:#eef8f2;border-color:#1b7a43">
+               <b style="color:#1b7a43">${legalSession.autoFillCount} job detail${legalSession.autoFillCount === 1 ? '' : 's'} placed automatically</b>
+               <div class="small">Recognized labels and blank fields were matched to this job. Review the copy and adjust any placement before saving.</div>
+             </div>`
+          : `<p class="small">No fillable fields or recognizable labels were found in this PDF. Choose a job field below and place it on the page; the position will be remembered for future jobs using this template.</p>`
     }
 
     <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
