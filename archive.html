@@ -369,6 +369,7 @@ async function renderJobDetail(id) {
                     <button onclick="openCommercialPdf('quote', '${esc(q.id)}')">View / Save PDF</button>
                     <button class="secondary" onclick="shareCommercialPdf('quote', '${esc(q.id)}')">Share</button>
                     <button class="secondary" onclick="quoteForm('${esc(id)}', '${esc(q.id)}')">Edit</button>
+                    <button class="danger" onclick="confirmDeleteCommercial('quote', '${esc(q.id)}', '${esc(id)}')">Delete</button>
                   </div>
                 </div>`
               )
@@ -392,6 +393,7 @@ async function renderJobDetail(id) {
                     <button onclick="openCommercialPdf('invoice', '${esc(inv.id)}')">View / Save PDF</button>
                     <button class="secondary" onclick="shareCommercialPdf('invoice', '${esc(inv.id)}')">Share</button>
                     <button class="secondary" onclick="invoiceForm('${esc(id)}', '${esc(inv.id)}')">Edit</button>
+                    <button class="danger" onclick="confirmDeleteCommercial('invoice', '${esc(inv.id)}', '${esc(id)}')">Delete</button>
                   </div>
                 </div>`
               )
@@ -550,6 +552,30 @@ async function deleteJob(id) {
   closeModal();
   toast('Job deleted');
   switchView('jobs');
+}
+
+function confirmDeleteCommercial(kind, recordId, jobId) {
+  const isQuote = kind === 'quote';
+  const label = isQuote ? 'quotation' : 'invoice';
+  modal(`
+    <h2>Delete ${label}?</h2>
+    <p class="m">This permanently removes the ${label} and its saved PDF from this device. The job and any payment records will remain.</p>
+    <button type="button" class="danger w" onclick="deleteCommercial('${kind}', '${esc(recordId)}', '${esc(jobId)}')">Yes, delete ${label}</button>
+  `);
+}
+
+async function deleteCommercial(kind, recordId, jobId) {
+  const storeName = kind === 'quote' ? 'quotes' : kind === 'invoice' ? 'invoices' : '';
+  if (!storeName) return toast('Unknown document type');
+  try {
+    await del(storeName, recordId);
+    closeModal();
+    toast(kind === 'quote' ? 'Quotation deleted' : 'Invoice deleted');
+    switchView('job', jobId);
+  } catch (e) {
+    console.error('Could not delete commercial document:', e);
+    toast('Could not delete document: ' + e.message);
+  }
 }
 
 // ============================================================================

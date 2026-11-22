@@ -1002,7 +1002,20 @@ async function startLegalDocument(templateId, jobId) {
       fields = pdf
         .getForm()
         .getFields()
-        .map((f) => ({ name: f.getName(), type: f.constructor.name }));
+        .map((f) => {
+          let value = '';
+          try {
+            if (typeof f.getText === 'function') value = f.getText() || '';
+            else if (typeof f.isChecked === 'function') value = f.isChecked() ? 'Yes' : '';
+            else if (typeof f.getSelected === 'function') {
+              const selected = f.getSelected();
+              value = Array.isArray(selected) ? selected[0] || '' : selected || '';
+            }
+          } catch (e) {
+            console.warn('Could not read existing PDF field value:', f.getName(), e);
+          }
+          return { name: f.getName(), type: f.constructor.name, value };
+        });
     } catch (e) {}
 
     legalSession = {
@@ -1018,17 +1031,21 @@ async function startLegalDocument(templateId, jobId) {
       selectedPresetKey: '',
       fontSize: 9.5
     };
+    legalSession.nativePrefills = buildNativeLegalPrefills(fields, buildLegalPresets());
 
     if (fields.length) {
       modal(`
         <h2>Fill legal PDF</h2>
         <p class="m">${esc(t.name)} · ${esc(j.ref)}. Detected ${fields.length} existing PDF form fields. Original wording is left untouched.</p>
+        <p class="small">${legalSession.nativePrefills.count
+          ? `${legalSession.nativePrefills.count} recognizable field${legalSession.nativePrefills.count === 1 ? ' was' : 's were'} pre-filled from this job, customer and business details. Review or edit them before saving.`
+          : 'No recognizable text-field names were found. Complete the fields manually, or use the placement editor for this PDF.'}</p>
         <form id="legalFillForm">
           ${fields
             .map(
               (f, i) => `
               <label>${esc(f.name)} <span class="small">(${esc(f.type)})</span></label>
-              <input name="field_${i}" data-field="${esc(f.name)}" placeholder="Enter value">`
+              <input name="field_${i}" data-field="${esc(f.name)}" value="${esc(f.value || legalSession.nativePrefills.values['field_' + i] || '')}" placeholder="Enter value">`
             )
             .join('')}
           <label>Signatory name (optional record)</label>
@@ -1065,10 +1082,15 @@ function buildLegalPresets() {
     { key: 'brandName', label: 'Business / Trading Name', value: brand.name || '' },
     { key: 'brandAddress', label: 'Business Address', value: (brand.address || '').replace(/\n/g, ', ') },
     { key: 'brandContact', label: 'Business Phone & Email', value: [brand.phone, brand.email].filter(Boolean).join(' | ') },
+    { key: 'brandPhone', label: 'Business Phone', value: brand.phone || '' },
+    { key: 'brandEmail', label: 'Business Email', value: brand.email || '' },
     { key: 'custName', label: 'Client Full Legal Name', value: j.customerName || c.name || '' },
     { key: 'custAddress', label: 'Client Billing Address', value: (c.address || j.customerAddress || '').replace(/\n/g, ', ') },
     { key: 'custContact', label: 'Client Phone & Email', value: [c.phone, c.email].filter(Boolean).join(' | ') },
+    { key: 'custPhone', label: 'Client Phone', value: c.phone || '' },
+    { key: 'custEmail', label: 'Client Email', value: c.email || '' },
     { key: 'siteAddress', label: 'Service Site Address', value: (j.customerAddress || c.address || '').replace(/\n/g, ', ') },
+    { key: 'workDesc', label: 'Work Description', value: (j.description || j.task || '').replace(/\n/g, ' ') },
     { key: 'notes', label: 'Exclusions / Notes', value: (q?.notes || j.description || '').replace(/\n/g, ' ') },
     { key: 'subtotal', label: 'Subtotal (£)', value: GBP(total) },
     { key: 'vat', label: 'Tax / VAT (£0.00)', value: '£0.00' },
@@ -1100,6 +1122,54 @@ function buildLegalPresets() {
   });
 
   return presets;
+}
+
+function buildNativeLegalPrefills(fields, presets) {
+  const aliases = {
+    jobRef: ['jobref', 'jobreference', 'jobnumber', 'contractreference', 'contractnumber', 'referencenumber'],
+    todayDate: ['date', 'today', 'currentdate', 'agreementdate', 'contractdate'],
+    brandName: ['businessname', 'companyname', 'contractorname', 'providername', 'suppliername'],
+    brandAddress: ['businessaddress', 'companyaddress', 'contractoraddress', 'provideraddress'],
+    brandPhone: ['businessphone', 'companyphone', 'contractorphone', 'providerphone', 'supplierphone'],
+    brandEmail: ['businessemail', 'companyemail', 'contractoremail', 'provideremail', 'supplieremail'],
+    custName: ['customername', 'clientname', 'customer', 'client', 'purchasername'],
+    custAddress: ['customeraddress', 'clientaddress', 'billingaddress', 'invoiceaddress'],
+    custPhone: ['customerphone', 'customerphonenumber', 'clientphone', 'clientphonenumber'],
+    custEmail: ['customeremail', 'clientemail'],
+    custContact: ['customercontact', 'clientcontact'],
+    siteAddress: ['siteaddress', 'jobsiteaddress', 'workaddress', 'propertyaddress', 'serviceaddress'],
+    workDesc: ['workdescription', 'jobdescription', 'scopeofwork', 'descriptionofworks', 'serviceprovided'],
+    notes: ['notes', 'exclusions', 'specialconditions'],
+    subtotal: ['subtotal', 'nettotal', 'amountbeforetax'],
+    vat: ['vat', 'salestax'],
+    totalDue: ['totaldue', 'amountdue', 'grandtotal', 'contractprice', 'total', 'price', 'amount'],
+    depositPct: ['deposit', 'depositpercentage'],
+    lateRate: ['interestrate', 'laterate'],
+    warrantyMonths: ['warranty', 'warrantymonths'],
+    providerName: ['providername', 'contractorname', 'businessname', 'companyname', 'suppliername'],
+    providerRole: ['providerrole', 'contractorrole', 'jobtitle'],
+    signedDateTime: ['signeddate', 'executiondate', 'signaturedate'],
+    clientInitials: ['customerinitials', 'clientinitials']
+  };
+  const valuesByKey = Object.fromEntries(presets.map((preset) => [preset.key, preset.value]));
+  const values = {};
+  let count = 0;
+
+  fields.forEach((field, index) => {
+    if (field.type !== 'PDFTextField' || field.value) return;
+    const name = String(field.name)
+      .replace(/\[\d+\]/g, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '');
+    const key = Object.keys(aliases).find((candidate) =>
+      aliases[candidate].some((alias) => name.endsWith(alias))
+    );
+    if (!key || !valuesByKey[key]) return;
+    values[`field_${index}`] = valuesByKey[key];
+    count++;
+  });
+
+  return { values, count };
 }
 
 async function openManualLegalEditor() {
