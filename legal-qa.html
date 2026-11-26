@@ -59,6 +59,34 @@ dialog::backdrop{background:#0008}
 // 1. TASK-SPECIFIC QA CHECKLISTS (15 TRADE CATEGORIES)
 // ============================================================================
 const TASKS = {
+  'Basic carpentry and joinery': [
+    'Has the condition of timber and surrounding structure been checked?',
+    'Are fixings and replacements compatible with the existing work?',
+    'Have cuts and assemblies been checked for fit and stability?',
+    'Does the completed item operate and sit correctly?',
+    'Have sharp edges, dust and offcuts been removed?'
+  ],
+  'General household repairs': [
+    'Has the repair scope and visible condition of the item been confirmed?',
+    'Are replacement parts and fixings suitable for the existing installation?',
+    'Has the repair been checked for safe operation and stability?',
+    'Have cosmetic damage or service limitations been recorded?',
+    'Has the work area been left clean and safe?'
+  ],
+  'Minor fixture replacements': [
+    'Have isolation requirements and existing fixture conditions been checked?',
+    'Is the replacement compatible and suitable for the location?',
+    'Are fixings and connections secure?',
+    'Has the fixture been checked for correct operation?',
+    'Have packaging, debris and test materials been cleared?'
+  ],
+  'Internal painting and decorating': [
+    'Have surfaces been inspected and prepared appropriately?',
+    'Have suitable coatings and finishes been used?',
+    'Is coverage even and are edges and cut-ins tidy?',
+    'Have drips, splashes and defects been addressed?',
+    'Has ventilation, drying and curing information been explained?'
+  ],
   'Garden gate repair': [
     'Is the gate frame, post and surrounding structure sound enough for the repair?',
     'Are hinges, fixings and latch suitable and securely fitted?',
@@ -136,13 +164,6 @@ const TASKS = {
     'Has key operation and locking been tested with the customer?',
     'Have keys and relevant operating information been handed over?'
   ],
-  'Gutter or downpipe minor repair': [
-    'Has safe access been established for the work?',
-    'Are joints, brackets and components correctly fitted?',
-    'Are connections secure and aligned?',
-    'Has water flow or leakage been checked where practicable?',
-    'Have access equipment and debris been removed safely?'
-  ],
   'Picture or mirror hanging': [
     'Has the wall type and item weight been considered?',
     'Are fixings and hanging hardware appropriate?',
@@ -164,6 +185,27 @@ const TASKS = {
     'Have the completed works been checked for safe operation and finish?',
     'Have any limitations, defects or follow-up actions been explained?'
   ]
+};
+
+const TASK_STANDARDS = {
+  'Basic carpentry and joinery': ['BS 8210:2021', 'BS 8000-0:2014'],
+  'General household repairs': ['BS 8210:2021'],
+  'Minor fixture replacements': ['BS 8210:2021', 'BS 7671:2018+A3:2024 where electrical work applies'],
+  'Internal painting and decorating': ['BS 6150:2019'],
+  'Flat-pack furniture assembly': ['Manufacturer instructions', 'BS 8210:2021'],
+  'Painting and decorating': ['BS 6150:2019'],
+  'Minor plumbing repair': ['BS 7593:2019', 'BS 6700:2016 where applicable'],
+  'Door adjustment or repair': ['BS 8213-1:2016'],
+  'Curtain pole or blind installation': ['BS 8210:2021'],
+  'Tile or grout repair': ['BS 8000-11:2016'],
+  'Lock or handle replacement': ['BS 3621:2007+A2:2018 where relevant'],
+  'Garden gate repair': ['BS 8210:2021'],
+  'Hanging shelves or hooks': ['BS 8000-0:2014'],
+  'Replacing silicone sealant': ['BS 8000-0:2014'],
+  'Fence panel repair': ['BS 8210:2021'],
+  'Picture or mirror hanging': ['BS 8000-0:2014'],
+  'General maintenance': ['BS 8210:2021'],
+  'Other / bespoke task': ['BS 8210:2021', 'Applicable manufacturer instructions']
 };
 
 let workspaceTab = 'qa'; // 'qa' | 'legal'
@@ -210,7 +252,6 @@ async function renderQaView() {
     ${renderTabs('qa')}
     <div class="c">
       <h2>QA Portal</h2>
-      <p class="m">Choose an existing job to create a quality assurance report. Each work type has its own five inspection questions with per-check photo evidence and customer sign-off.</p>
       ${
         jobs.length
           ? jobs
@@ -254,7 +295,6 @@ async function renderQaView() {
     </div>
 
     <div class="c">
-      <p class="small">The QA report is a quality and completion record. It is not an invoice or a substitute for a written contract.</p>
     </div>
   `;
 }
@@ -397,7 +437,6 @@ async function qaForm(jobId) {
 
       <div class="c">
         <h3>Additional photographic evidence</h3>
-        <p class="small">Photos added to individual checklist questions will appear beside those questions in the PDF. You can also add general job photographs here.</p>
         <input type="file" id="qaPhotos" accept="image/*" capture="environment" multiple onchange="previewPhotos(this)">
         <div id="photoPreview" class="evidence-grid"></div>
       </div>
@@ -417,7 +456,6 @@ async function qaForm(jobId) {
 
       <div class="c">
         <h3>Customer confirmation</h3>
-        <p class="small">I confirm that I have reviewed the details in this QA report and that they accurately record the work and checks discussed with me. Any comments or concerns are recorded above.</p>
         <label>Customer confirmation name</label>
         <input name="customerConfirmName" value="${esc(j.customerName)}" required>
         <label><input type="checkbox" name="customerConfirmed" value="yes" required> I confirm that the customer has reviewed and agreed to this report.</label>
@@ -428,7 +466,6 @@ async function qaForm(jobId) {
 
       <div class="c">
         <h3>Handyman declaration</h3>
-        <p class="small">I confirm that this report is an accurate record of the work and checks I carried out to the best of my knowledge.</p>
         <label>Handyman signature</label>
         <canvas class="signature" id="handymanSignature"></canvas>
         <button type="button" class="secondary" onclick="clearSignature('handymanSignature')">Clear handyman signature</button>
@@ -446,10 +483,11 @@ async function qaForm(jobId) {
 function renderQuestions() {
   const type = $('#qaType').value;
   const qs = TASKS[type] || TASKS['General maintenance'];
+  const standards = TASK_STANDARDS[type] || TASK_STANDARDS['General maintenance'];
   $('#qaQuestions').innerHTML = `
     <div class="c">
       <h3>Task-specific inspection checklist</h3>
-      <p class="small">Answer each question. Use Not Applicable only when the check genuinely does not apply. Add photos directly to the relevant check so the evidence appears beside it in the report.</p>
+      <div class="small"><b>Standards guidance:</b> ${esc(standards.join(' · '))}</div>
       ${qs
         .map(
           (q, i) => `
@@ -583,8 +621,13 @@ async function saveQA(jobId) {
   const pdfWindow = window.open('about:blank', '_blank');
   try {
     const job = await get('jobs', jobId);
+    let qaCounter = await get('counters', 'qa-report');
+    if (!qaCounter) qaCounter = { id: 'qa-report', value: 0 };
+    qaCounter.value++;
+    await put('counters', qaCounter);
     const report = {
       id: uid(),
+      documentNumber: `DKHS-QA-${String(qaCounter.value).padStart(3, '0')}`,
       jobId,
       jobRef: job.ref,
       ...f,
@@ -605,7 +648,7 @@ async function saveQA(jobId) {
     await put('jobs', job);
 
     const blob = await makeQAPdf(report);
-    presentPdf(blob, `${report.jobRef}_QA_Report_${report.workDate}.pdf`, pdfWindow);
+    presentPdf(blob, `${report.documentNumber}_QA_Report.pdf`, pdfWindow);
     closeModal();
     toast('QA report saved and PDF generated');
     workspaceTab = 'qa';
@@ -714,6 +757,28 @@ async function makeQAPdf(r) {
     ctx.textAlign = 'right';
     ctx.fillText('Page ' + (page + 1), W - margin, H - 20);
     ctx.textAlign = 'left';
+    ctx.save();
+    ctx.globalAlpha = 0.18;
+    ctx.fillStyle = brand.color || '#0f5c5c';
+    ctx.font = 'bold 24px Arial';
+    ctx.translate(W / 2, H / 2);
+    ctx.rotate(-35 * Math.PI / 180);
+    ctx.textAlign = 'center';
+    ctx.fillText(`${brand.name || 'Business'} - Quality Workmanship Guaranteed`, 0, 0);
+    ctx.restore();
+    ctx.textAlign = 'left';
+    ctx.fillStyle = brand.color || '#0f5c5c';
+    ctx.font = 'bold 11px Arial';
+    ctx.fillText('*', margin, H - 7);
+    ctx.fillStyle = '#5b6b76';
+    ctx.font = '5.8px Arial';
+    const guaranteeLines = [
+      '*Satisfaction Guarantee: We pride ourselves on high-quality workmanship.',
+      'If you are not entirely satisfied with the completed task, please contact us within 14 days of invoice date',
+      'to arrange an inspection and appropriate remedial action.',
+      'This guarantee covers our workmanship only and does not extend to pre-existing defects, structural issues, or materials supplied by the client.'
+    ];
+    guaranteeLines.forEach((lineText, index) => ctx.fillText(lineText, margin + 10, H - 7 - index * 5));
     ctx.fillStyle = '#14232f';
     y = 103;
     page++;
@@ -754,6 +819,21 @@ async function makeQAPdf(r) {
   line('Handyman', r.handymanName);
   line('Work address', r.jobAddress);
   line('Work date', dateFmt(r.workDate));
+  const standards = TASK_STANDARDS[r.taskType] || TASK_STANDARDS['General maintenance'];
+  line('Standards guidance', standards.join(' · '));
+
+  const validPolicies = getValidInsurancePolicies();
+  if (validPolicies.length) {
+    heading('PUBLIC LIABILITY INSURANCE');
+    validPolicies.forEach((policy) => {
+      line(policy.name || 'Public liability policy', [
+        policy.provider,
+        policy.reference ? `Policy: ${policy.reference}` : '',
+        policy.expiry ? `Expires: ${dateFmt(policy.expiry)}` : '',
+        policy.coverage ? `Cover: £${Number(policy.coverage).toLocaleString('en-GB')}` : ''
+      ].filter(Boolean).join(' · '));
+    });
+  }
 
   heading('WORK CARRIED OUT');
   para(r.workDescription);
@@ -856,6 +936,10 @@ async function makeQAPdf(r) {
 
   await ensurePdfLib();
   const pdf = await PDFLib.PDFDocument.create();
+  pdf.setTitle(r.documentNumber || r.jobRef || 'Quality Assurance Report');
+  pdf.setSubject(r.documentNumber || r.jobRef || '');
+  pdf.setAuthor(brand.name || '');
+  pdf.setCreator('Handyman Manager');
   for (const data of pages) {
     const bytes = Uint8Array.from(atob(data.split(',')[1]), (c) => c.charCodeAt(0));
     const img = await pdf.embedJpg(bytes);
@@ -871,7 +955,7 @@ async function downloadQA(id) {
     const r = await get('qaReports', id);
     if (!r) throw new Error('Report not found');
     const blob = await makeQAPdf(r);
-    presentPdf(blob, `${r.jobRef}_QA_Report_${r.workDate}.pdf`, win);
+    presentPdf(blob, `${r.documentNumber || r.jobRef + '_QA_Report'}_QA_Report.pdf`, win);
   } catch (e) {
     if (win) win.close();
     toast('Could not open QA PDF: ' + e.message);
@@ -885,8 +969,8 @@ async function shareQA(id) {
     const blob = await makeQAPdf(r);
     await shareOrDownloadFile(
       blob,
-      `${r.jobRef}_QA_Report_${r.workDate}.pdf`,
-      `QA Report ${r.jobRef}`
+      `${r.documentNumber || r.jobRef + '_QA_Report'}_QA_Report.pdf`,
+      `QA Report ${r.documentNumber || r.jobRef}`
     );
   } catch (e) {
     toast('Could not share QA PDF: ' + e.message);
@@ -2014,6 +2098,7 @@ async function saveNativeLegalDocument() {
   try {
     const f = formData('legalFillForm');
     await applyNativeLegalValues(f);
+    await applyPdfBranding(legalSession.pdf, legalSession.job?.ref || legalSession.template?.name || '');
     const bytes = await legalSession.pdf.save();
     await storeCompletedLegal(bytes, f.signatory || '', [], f);
   } catch (e) {
@@ -2087,6 +2172,7 @@ async function saveManualLegalDocument() {
       await put('templates', legalSession.template);
     }
 
+    await applyPdfBranding(legalSession.pdf, legalSession.job?.ref || legalSession.template?.name || '');
     const bytes = await legalSession.pdf.save();
     await storeCompletedLegal(
       bytes,

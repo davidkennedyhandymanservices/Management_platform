@@ -32,7 +32,7 @@ const APP_CONFIG = {
 };
 
 const DEFAULT_BRAND = {
-  name: 'David Kennedy Handyman Services',
+  name: '',
   slogan: '',
   address: '',
   phone: '',
@@ -41,7 +41,8 @@ const DEFAULT_BRAND = {
   color: '#0f5c5c',
   footer: '',
   bankDetails: '',
-  logo: ''
+  logo: '',
+  insurancePolicies: []
 };
 
 let db = null;
@@ -193,7 +194,13 @@ function openDB() {
 async function loadBrand() {
   try {
     const saved = await get('settings', 'brand');
-    brand = { ...DEFAULT_BRAND, ...(saved || {}) };
+    brand = {
+      ...DEFAULT_BRAND,
+      ...(saved || {}),
+      insurancePolicies: Array.isArray(saved?.insurancePolicies)
+        ? saved.insurancePolicies
+        : []
+    };
   } catch (e) {
     console.warn('Could not load saved brand, using default:', e);
     brand = { ...DEFAULT_BRAND };
@@ -212,6 +219,87 @@ async function loadBrand() {
   if (sloganEl) sloganEl.textContent = brand.slogan || '';
 
   return brand;
+}
+
+function getValidInsurancePolicies() {
+  if (!Array.isArray(brand.insurancePolicies)) return [];
+  const todayValue = today();
+  return brand.insurancePolicies.filter((policy) => {
+    if (!policy || typeof policy !== 'object') return false;
+    const reference = String(policy.reference || '').trim();
+    const expiry = String(policy.expiry || '').trim();
+    return reference !== '' && expiry !== '' && expiry >= todayValue;
+  });
+}
+
+function getBrandPdfFooterText() {
+  return '*Satisfaction Guarantee: We pride ourselves on high-quality workmanship. If you are not entirely satisfied with the completed task, please contact us within 14 days of invoice date to arrange an inspection and appropriate remedial action. This guarantee covers our workmanship only and does not extend to pre-existing defects, structural issues, or materials supplied by the client.';
+}
+
+async function applyPdfBranding(pdfDocument, documentReference = '') {
+  if (!pdfDocument) return;
+  const reference = String(documentReference || '').trim();
+  if (reference) {
+    pdfDocument.setTitle(reference);
+    pdfDocument.setSubject(reference);
+  }
+  pdfDocument.setAuthor(brand.name || '');
+  pdfDocument.setCreator('Handyman Manager');
+
+  const { rgb, degrees, StandardFonts } = PDFLib;
+  const brandingFont = await pdfDocument.embedFont(StandardFonts.Helvetica);
+  const watermark = `${brand.name || 'Business'} - Quality Workmanship Guaranteed`;
+  const accent = brand.color || '#0f5c5c';
+  const hex = accent.replace('#', '');
+  const rgbAccent = [
+    parseInt(hex.slice(0, 2), 16) / 255,
+    parseInt(hex.slice(2, 4), 16) / 255,
+    parseInt(hex.slice(4, 6), 16) / 255
+  ];
+  const guarantee = getBrandPdfFooterText();
+
+  for (const page of pdfDocument.getPages()) {
+    const { width, height } = page.getSize();
+    page.drawText(watermark, {
+      x: width * 0.12,
+      y: height * 0.48,
+      size: 20,
+      font: brandingFont,
+      color: rgb(...rgbAccent),
+      opacity: 0.18,
+      rotate: degrees(-35)
+    });
+
+    page.drawText('*', {
+      x: 48,
+      y: 43,
+      size: 11,
+      font: brandingFont,
+      color: rgb(...rgbAccent)
+    });
+    const words = guarantee.slice(1).split(/\s+/);
+    const lines = [];
+    let line = '';
+    for (const word of words) {
+      const candidate = line ? line + ' ' + word : word;
+      if (candidate.length > 125 && line) {
+        lines.push(line);
+        line = word;
+      } else {
+        line = candidate;
+      }
+    }
+    if (line) lines.push(line);
+    lines.slice(0, 3).forEach((text, index) => {
+      page.drawText(text, {
+        x: 60,
+        y: 42 - index * 8,
+        size: 6.5,
+        font: brandingFont,
+        color: rgb(0.3, 0.36, 0.4)
+      });
+    });
+  }
 }
 
 // ============================================================================

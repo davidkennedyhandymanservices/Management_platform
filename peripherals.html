@@ -60,12 +60,14 @@ async function renderPeripherals() {
   );
 
   const countMap = Object.fromEntries(counts.map((c) => [c.name, c.count]));
+  const insurancePolicies = Array.isArray(brand.insurancePolicies) ? brand.insurancePolicies : [];
+  const policyRows = insurancePolicies.length
+    ? insurancePolicies.map(renderInsurancePolicyRow).join('')
+    : renderInsurancePolicyRow();
 
   $('#view').innerHTML = `
     <h2>Business settings &amp; branding</h2>
     <form id="brandForm" class="c" onsubmit="event.preventDefault();saveBrandSettings()">
-      <p class="m">Changes here automatically update the header, accent colour, and all generated Quotations, Invoices, and QA Report PDFs across every page.</p>
-
       <label>Business name</label>
       <input name="name" value="${esc(brand.name)}" required>
 
@@ -107,13 +109,17 @@ async function renderPeripherals() {
       }
       <input type="file" accept="image/png,image/jpeg" id="brandLogo">
 
+      <div class="c" style="margin:14px 0;padding:12px">
+        <h3>Public liability insurance</h3>
+        <div id="insurancePolicyRows">${policyRows}</div>
+        <button type="button" class="secondary w" onclick="addInsurancePolicy()">Add policy</button>
+      </div>
+
       <button class="w" type="submit">Save business settings</button>
     </form>
 
     <div class="c">
       <h3>Backup and restore</h3>
-      <p class="m">Your records are stored locally in this browser on this device. Back up regularly. Backups contain customer information and are not encrypted, so store them securely.</p>
-
       <div style="margin:10px 0;padding:10px;background:#f8fafb;border:1px solid var(--ln);border-radius:8px">
         <div class="row"><span>Customers</span><b>${countMap.customers || 0}</b></div>
         <div class="row"><span>Jobs</span><b>${countMap.jobs || 0}</b></div>
@@ -128,12 +134,45 @@ async function renderPeripherals() {
       <label style="margin-top:14px">Restore from backup file (.json)</label>
       <input id="restoreFileInput" type="file" accept="application/json,.json" onchange="prepareRestoreBackup(this)">
     </div>
+  `;
+}
 
-    <div class="c">
-      <h3>Important notes</h3>
-      <p class="m">This tool records job information, commercial documents, legal templates, and QA evidence. It does not provide legal advice, verify trade competence, certify regulated work, or replace required contracts, insurance, or statutory documents.</p>
+function renderInsurancePolicyRow(policy = {}) {
+  return `
+    <div class="insurance-policy c" style="margin:8px 0;padding:10px">
+      <label>Policy name</label>
+      <input name="policyName" value="${esc(policy.name || '')}" placeholder="Tradesman Public Liability">
+      <label>Provider name</label>
+      <input name="providerName" value="${esc(policy.provider || '')}">
+      <label>Policy reference number</label>
+      <input name="policyReference" value="${esc(policy.reference || '')}">
+      <label>Expiry date</label>
+      <input name="policyExpiry" type="date" value="${esc(policy.expiry || '')}">
+      <label>Coverage limit (£)</label>
+      <input name="policyCoverage" type="number" min="0" step="1000" value="${esc(policy.coverage || '')}" placeholder="1000000">
+      <button type="button" class="danger" style="min-height:36px" onclick="removeInsurancePolicy(this)">Remove policy</button>
     </div>
   `;
+}
+
+function addInsurancePolicy() {
+  $('#insurancePolicyRows').insertAdjacentHTML('beforeend', renderInsurancePolicyRow());
+}
+
+function removeInsurancePolicy(button) {
+  button.closest('.insurance-policy')?.remove();
+}
+
+function collectInsurancePolicies() {
+  return Array.from(document.querySelectorAll('.insurance-policy')).map((row) => ({
+    name: row.querySelector('[name="policyName"]')?.value.trim() || '',
+    provider: row.querySelector('[name="providerName"]')?.value.trim() || '',
+    reference: row.querySelector('[name="policyReference"]')?.value.trim() || '',
+    expiry: row.querySelector('[name="policyExpiry"]')?.value.trim() || '',
+    coverage: Number(row.querySelector('[name="policyCoverage"]')?.value) || 0
+  })).filter((policy) =>
+    policy.name || policy.provider || policy.reference || policy.expiry || policy.coverage
+  );
 }
 
 // ============================================================================
@@ -149,7 +188,8 @@ async function saveBrandSettings() {
     const updatedBrand = {
       ...brand,
       ...f,
-      name: f.name.trim()
+      name: f.name.trim(),
+      insurancePolicies: collectInsurancePolicies()
     };
 
     const fileInput = $('#brandLogo');

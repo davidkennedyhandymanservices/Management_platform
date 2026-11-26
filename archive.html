@@ -57,13 +57,16 @@ const TASK_TYPES = [
   'Replacing silicone sealant',
   'Flat-pack furniture assembly',
   'Painting and decorating',
+  'Internal painting and decorating',
+  'Basic carpentry and joinery',
+  'General household repairs',
+  'Minor fixture replacements',
   'Minor plumbing repair',
   'Door adjustment or repair',
   'Curtain pole or blind installation',
   'Tile or grout repair',
   'Fence panel repair',
   'Lock or handle replacement',
-  'Gutter or downpipe minor repair',
   'Picture or mirror hanging',
   'General maintenance',
   'Other / bespoke task'
@@ -659,7 +662,7 @@ async function saveCommercial(kind, jobId, recordId = '') {
   const old = recordId ? await get(storeName, recordId) : null;
   const j = await get('jobs', jobId);
 
-  const counterKey = 'commercial';
+  const counterKey = kind === 'quote' ? 'commercial-quote' : 'commercial-invoice';
   let counter = await get('counters', counterKey);
   if (!old && !counter) counter = { id: counterKey, value: 0 };
   if (!old) {
@@ -675,7 +678,7 @@ async function saveCommercial(kind, jobId, recordId = '') {
     kind,
     documentNumber:
       old?.documentNumber ||
-      `DKH-${new Date().getFullYear()}-${String(counter?.value || 1).padStart(4, '0')}`,
+      `DKHS-${kind === 'quote' ? 'QUO' : 'INV'}-${String(counter?.value || 1).padStart(3, '0')}`,
     customerName: j.customerName,
     customerAddress: j.customerAddress,
     customerPhone: customer?.phone || '',
@@ -712,6 +715,10 @@ async function saveCommercial(kind, jobId, recordId = '') {
 async function makeCommercialPdf(r) {
   await loadScript('https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js');
   const pdf = await PDFLib.PDFDocument.create();
+  pdf.setTitle(r.documentNumber || '');
+  pdf.setSubject(r.documentNumber || '');
+  pdf.setAuthor(brand.name || '');
+  pdf.setCreator('Handyman Manager');
   const font = await pdf.embedFont(PDFLib.StandardFonts.Helvetica);
   const bold = await pdf.embedFont(PDFLib.StandardFonts.HelveticaBold);
   const W = 595,
@@ -868,6 +875,21 @@ async function makeCommercialPdf(r) {
     textLine('Payment status: ' + r.status, 10, true);
     if (brand.bankDetails) wrapped(brand.bankDetails, 92, 9);
   }
+  const validPolicies = getValidInsurancePolicies();
+  if (validPolicies.length) {
+    y -= 10;
+    textLine('PUBLIC LIABILITY INSURANCE', 9, true);
+    for (const policy of validPolicies) {
+      const details = [
+        policy.name,
+        policy.provider,
+        policy.reference ? `Policy: ${policy.reference}` : '',
+        policy.expiry ? `Expires: ${dateFmt(policy.expiry)}` : '',
+        policy.coverage ? `Cover: ${GBP(policy.coverage)}` : ''
+      ].filter(Boolean);
+      wrapped(details.join('  |  '), 92, 9);
+    }
+  }
   if (brand.phone) textLine('Phone: ' + brand.phone, 9);
   if (brand.email) textLine('Email: ' + brand.email, 9);
   if (brand.website) textLine('Website: ' + brand.website, 9);
@@ -898,6 +920,7 @@ async function makeCommercialPdf(r) {
       color: PDFLib.rgb(0.3, 0.36, 0.4)
     });
   }
+  await applyPdfBranding(pdf, r.documentNumber);
   return new Blob([await pdf.save()], { type: 'application/pdf' });
 }
 
